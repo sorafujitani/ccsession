@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -40,9 +41,18 @@ func ParseSessionTail(path string, maxBytes int64) (*Session, error) {
 		aiTitle      string
 		lastPrompt   string
 		lastUserText string
-		cwd          string
+		earliestCWD  string // chronologically first cwd seen (reverse loop ⇒ last write wins)
+		matchingCWD  string // cwd whose `/`→`-` encoding matches the project dir name
 		lastTS       time.Time
 	)
+
+	// `claude --resume` resolves the JSONL by encoding the current cwd as
+	// `/`→`-` and reading `~/.claude/projects/<encoded>/<id>.jsonl`. If the
+	// user `cd`-ed mid-session, the JSONL records multiple distinct cwds
+	// and only the one whose encoding matches the project dir is safe to
+	// chdir to before exec — picking any other will make claude look in
+	// the wrong folder and fail with "No conversation found".
+	projectsBase := filepath.Base(sess.ProjectDir)
 
 	lines := bytes.Split(buf, []byte{'\n'})
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -53,6 +63,15 @@ func ParseSessionTail(path string, maxBytes int64) (*Session, error) {
 		var e entry
 		if err := json.Unmarshal(line, &e); err != nil {
 			continue
+		}
+		// Collect cwd from any entry that carries one (user, assistant,
+		// system, …). The JSONL can record several distinct cwds within
+		// a single session.
+		if e.CWD != "" {
+			earliestCWD = e.CWD
+			if matchingCWD == "" && encodeCWD(e.CWD) == projectsBase {
+				matchingCWD = e.CWD
+			}
 		}
 		switch e.Type {
 		case "ai-title":
@@ -65,9 +84,6 @@ func ParseSessionTail(path string, maxBytes int64) (*Session, error) {
 			}
 		case "user":
 			hasUser = true
-			if cwd == "" && e.CWD != "" {
-				cwd = e.CWD
-			}
 			if lastUserText == "" && e.Message != nil {
 				lastUserText = extractText(e.Message.Content)
 			}
@@ -79,6 +95,32 @@ func ParseSessionTail(path string, maxBytes int64) (*Session, error) {
 				lastTS = t
 			}
 		}
+	}
+
+	// cwd selection precedence (highest to lowest):
+	//   1. a cwd from the tail whose `/`→`-` encoding matches the project
+	//      dir name — that's exactly what `claude --resume` will look for.
+	//   2. the cwd of the *first* entry in the file (session-start cwd):
+	//      `claude` names the project dir after this, so it's the safest
+	//      candidate. Required for large sessions where the entire tail
+	//      records a post-`cd` cwd.
+	//   3. the project dir name decoded back to a path, if that path exists
+	//      (lossy fallback for transcripts with no cwd fields at all).
+	//   4. the chronologically earliest cwd recorded in the tail — last
+	//      resort, may point at the wrong directory.
+	cwd := matchingCWD
+	if cwd == "" {
+		if start, _ := readStartCWD(path); start != "" {
+			cwd = start
+		}
+	}
+	if cwd == "" {
+		if guess := restoreCWDFromDir(sess.ProjectDir); pathIsDir(guess) {
+			cwd = guess
+		}
+	}
+	if cwd == "" {
+		cwd = earliestCWD
 	}
 
 	if !hasUser {
@@ -98,18 +140,10 @@ func ParseSessionTail(path string, maxBytes int64) (*Session, error) {
 
 	sess.CWD = cwd
 	if cwd == "" {
-		// The encoded directory name replaces "/" with "-", which is lossy
-		// for any path that contains a "-". Only trust the recovered path
-		// if it actually exists on disk; otherwise mark the cwd as unknown
-		// rather than silently producing a wrong-but-plausible value.
-		guess := restoreCWDFromDir(sess.ProjectDir)
-		if pathIsDir(guess) {
-			sess.CWD = guess
-		} else {
-			sess.CWDUnknown = true
-		}
-	}
-	if sess.CWD != "" {
+		// We exhausted every candidate (no recorded cwd, no encode-match,
+		// dir-name decode was lossy AND the decoded path did not exist).
+		sess.CWDUnknown = true
+	} else {
 		sess.CWDBasename = filepath.Base(sess.CWD)
 		sess.CWDExists = pathIsDir(sess.CWD)
 	}
@@ -244,6 +278,47 @@ func restoreCWDFromDir(dir string) string {
 	base := filepath.Base(dir)
 	base = strings.TrimPrefix(base, "-")
 	return "/" + strings.ReplaceAll(base, "-", "/")
+}
+
+// encodeCWD mirrors Claude Code's projects-directory naming: every "/" in
+// the absolute path becomes "-". This is the (lossy) inverse of
+// restoreCWDFromDir; we use it to pick the cwd that `claude --resume` will
+// actually look at, not the latest cwd recorded in the transcript.
+func encodeCWD(cwd string) string {
+	return strings.ReplaceAll(cwd, "/", "-")
+}
+
+// readStartCWD scans from the head of the file and returns the cwd of the
+// first entry that records one. The project dir under ~/.claude/projects/
+// is named after the session-start cwd, so this value reliably matches
+// what `claude --resume` will look for — even when the tail only contains
+// post-`cd` cwds.
+//
+// Stops scanning early once a cwd is found. Reads at most 64 KiB on entry
+// boundaries.
+func readStartCWD(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(io.LimitReader(f, 64*1024))
+	sc.Buffer(make([]byte, 16*1024), 64*1024)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var e entry
+		if err := json.Unmarshal(line, &e); err != nil {
+			continue
+		}
+		if e.CWD != "" {
+			return e.CWD, nil
+		}
+	}
+	return "", sc.Err()
 }
 
 func pathIsDir(path string) bool {

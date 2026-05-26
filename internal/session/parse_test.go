@@ -223,6 +223,140 @@ func TestParseSessionTail_FallsBackToModTimeWhenNoTimestamp(t *testing.T) {
 	}
 }
 
+// Regression: a session that `cd`-ed mid-conversation records multiple
+// distinct cwds. `claude --resume` only looks under the project dir that
+// encodes session-start cwd, so we must pick the cwd whose `/`→`-`
+// encoding matches the project dir name — not the chronologically latest
+// one. See issue #6.
+func TestParseSessionTail_CWDChangedMidSession_PicksProjectMatchingCWD(t *testing.T) {
+	tmp := t.TempDir()
+	realCWD := filepath.Join(tmp, "myproj")
+	sub := filepath.Join(realCWD, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	encoded := strings.ReplaceAll(realCWD, "/", "-")
+	projDir := filepath.Join(tmp, "projects", encoded)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir projDir: %v", err)
+	}
+	body := strings.Join([]string{
+		// chronologically first: session-start cwd, encodes to projDir name.
+		`{"type":"user","timestamp":"2024-01-01T10:00:00Z","cwd":"` + realCWD + `","message":{"role":"user","content":"hi"}}`,
+		// after `cd sub/`: a deeper cwd that does NOT encode to projDir name.
+		`{"type":"user","timestamp":"2024-01-01T10:05:00Z","cwd":"` + sub + `","message":{"role":"user","content":"there"}}`,
+	}, "\n") + "\n"
+	p := writeJSONL(t, projDir, "abc.jsonl", body)
+
+	s, err := ParseSessionTail(p, TailReadBytes)
+	if err != nil || s == nil {
+		t.Fatalf("ParseSessionTail: %v, s=%v", err, s)
+	}
+	if s.CWD != realCWD {
+		t.Errorf("CWD = %q, want %q (must pick the cwd whose encoding matches "+
+			"the project dir; picking %q would make claude --resume look in "+
+			"the wrong folder)", s.CWD, realCWD, sub)
+	}
+}
+
+// Regression: large sessions push the session-start cwd out of the 64 KiB
+// tail, leaving only post-`cd` cwds. ParseSessionTail must read the head
+// of the file for the session-start cwd in this case, since that's what
+// the project dir was named after.
+func TestParseSessionTail_LargeSession_UsesStartCWDFromHead(t *testing.T) {
+	tmp := t.TempDir()
+	realCWD := filepath.Join(tmp, "myproj")
+	sub := filepath.Join(realCWD, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	encoded := strings.ReplaceAll(realCWD, "/", "-")
+	projDir := filepath.Join(tmp, "projects", encoded)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir projDir: %v", err)
+	}
+
+	// First entry carries session-start cwd; many padded entries follow
+	// with the post-`cd` cwd so that the tail window does not reach the
+	// first entry.
+	var lines []string
+	lines = append(lines,
+		`{"type":"user","timestamp":"2024-01-01T10:00:00Z","cwd":"`+realCWD+`","message":{"role":"user","content":"first"}}`)
+	pad := strings.Repeat("X", 1000)
+	for range 200 {
+		lines = append(lines,
+			`{"type":"user","timestamp":"2024-01-01T10:05:00Z","cwd":"`+sub+`","message":{"role":"user","content":"`+pad+`"}}`)
+	}
+	body := strings.Join(lines, "\n") + "\n"
+	p := writeJSONL(t, projDir, "abc.jsonl", body)
+
+	s, err := ParseSessionTail(p, TailReadBytes)
+	if err != nil || s == nil {
+		t.Fatalf("ParseSessionTail: %v, s=%v", err, s)
+	}
+	if s.CWD != realCWD {
+		t.Errorf("CWD = %q, want %q (start cwd recovered from file head)",
+			s.CWD, realCWD)
+	}
+}
+
+// Fallback for transcripts that have NO cwd field anywhere — neither tail
+// nor head can supply one. Use the project dir name decoded back to a
+// path, if that path exists on disk.
+func TestParseSessionTail_NoCWDAnywhere_UsesDecodedProjectDirGuess(t *testing.T) {
+	tmp := t.TempDir()
+	realCWD := filepath.Join(tmp, "myproj")
+	if err := os.MkdirAll(realCWD, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	encoded := strings.ReplaceAll(realCWD, "/", "-")
+	projDir := filepath.Join(tmp, "projects", encoded)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir projDir: %v", err)
+	}
+	body := `{"type":"user","timestamp":"2024-01-01T10:00:00Z","message":{"role":"user","content":"hi"}}` + "\n"
+	p := writeJSONL(t, projDir, "abc.jsonl", body)
+
+	s, err := ParseSessionTail(p, TailReadBytes)
+	if err != nil || s == nil {
+		t.Fatalf("ParseSessionTail: %v, s=%v", err, s)
+	}
+	if s.CWD != realCWD {
+		t.Errorf("CWD = %q, want %q (decoded project dir guess)", s.CWD, realCWD)
+	}
+}
+
+// Fallback: when no recorded cwd encodes to the project dir name (legacy /
+// renamed / broken transcripts), use the chronologically earliest cwd —
+// that's the session-start cwd and the most likely candidate for the
+// directory the JSONL was written into.
+func TestParseSessionTail_NoMatchingCWD_FallsBackToEarliest(t *testing.T) {
+	tmp := t.TempDir()
+	projDir := filepath.Join(tmp, "projects", "-name-does-not-match")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir projDir: %v", err)
+	}
+	startCWD := filepath.Join(tmp, "start")
+	laterCWD := filepath.Join(startCWD, "sub")
+	if err := os.MkdirAll(laterCWD, 0o755); err != nil {
+		t.Fatalf("mkdir cwd: %v", err)
+	}
+	body := strings.Join([]string{
+		`{"type":"user","timestamp":"2024-01-01T10:00:00Z","cwd":"` + startCWD + `","message":{"role":"user","content":"first"}}`,
+		`{"type":"user","timestamp":"2024-01-01T10:05:00Z","cwd":"` + laterCWD + `","message":{"role":"user","content":"later"}}`,
+	}, "\n") + "\n"
+	p := writeJSONL(t, projDir, "abc.jsonl", body)
+
+	s, err := ParseSessionTail(p, TailReadBytes)
+	if err != nil || s == nil {
+		t.Fatalf("ParseSessionTail: %v, s=%v", err, s)
+	}
+	if s.CWD != startCWD {
+		t.Errorf("CWD = %q, want %q (earliest cwd as fallback)",
+			s.CWD, startCWD)
+	}
+}
+
 // B-10: the dir-name fallback turns "-Users-bob-proj" into "/Users/bob/proj",
 // but a real cwd that contained a hyphen (e.g. "/home/foo-bar/proj") would be
 // decoded back to a different path ("/home/foo/bar/proj"). To avoid silently
