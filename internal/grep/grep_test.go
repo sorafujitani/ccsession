@@ -3,6 +3,7 @@ package grep
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -159,6 +160,43 @@ func TestFilter_RegexMode(t *testing.T) {
 	}
 	if _, ok := set[p]; !ok {
 		t.Errorf("expected regex match, got %v", set)
+	}
+}
+
+// Regression: a phrase that only appears in the ai-title (= the label
+// shown in the list view) must be matchable, otherwise users searching
+// for what they can see on screen find nothing. See issue #8.
+func TestFilter_MatchesAITitleLabel(t *testing.T) {
+	projects := makeProjects(t)
+	p := filepath.Join(projects, "-p", "a.jsonl")
+	writeFile(t, p, strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"plain body without the keyword"}}`,
+		`{"type":"ai-title","aiTitle":"toridoriのapplication監視の達成状態"}`,
+	}, "\n")+"\n")
+
+	set, err := Filter("application監視", Options{})
+	if err != nil {
+		t.Fatalf("Filter: %v", err)
+	}
+	if _, ok := set[p]; !ok {
+		t.Errorf("expected ai-title keyword to hit, got %v", set)
+	}
+}
+
+func TestFilter_MatchesLastPrompt(t *testing.T) {
+	projects := makeProjects(t)
+	p := filepath.Join(projects, "-p", "a.jsonl")
+	writeFile(t, p, strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"plain"}}`,
+		`{"type":"last-prompt","lastPrompt":"investigate xyz"}`,
+	}, "\n")+"\n")
+
+	set, err := Filter("investigate", Options{})
+	if err != nil {
+		t.Fatalf("Filter: %v", err)
+	}
+	if _, ok := set[p]; !ok {
+		t.Errorf("expected last-prompt to hit, got %v", set)
 	}
 }
 

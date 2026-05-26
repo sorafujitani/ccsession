@@ -30,18 +30,31 @@ func IterContent(path string, fn func(text string) bool) error {
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
 			continue
 		}
-		if e.Type != "user" && e.Type != "assistant" {
-			continue
-		}
-		if e.Message == nil {
-			continue
-		}
-		text := extractText(e.Message.Content)
-		if text == "" {
-			continue
-		}
-		if !fn(text) {
-			return nil
+		// Yield only the *values* of explicitly-listed user-visible fields.
+		// This still keeps JSON keys (e.g. "type") and the cwd field out of
+		// the search corpus — matching only the things the user actually
+		// reads in the list view: conversation body, the ai-title that
+		// shows up as the label, and the last-prompt summary.
+		switch e.Type {
+		case "user", "assistant":
+			if e.Message == nil {
+				continue
+			}
+			text := extractText(e.Message.Content)
+			if text == "" {
+				continue
+			}
+			if !fn(text) {
+				return nil
+			}
+		case "ai-title":
+			if e.AITitle != "" && !fn(e.AITitle) {
+				return nil
+			}
+		case "last-prompt":
+			if e.LastPrompt != "" && !fn(e.LastPrompt) {
+				return nil
+			}
 		}
 	}
 	return sc.Err()
