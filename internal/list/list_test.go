@@ -76,6 +76,35 @@ func TestFormatLine_GoneMarker(t *testing.T) {
 	if !strings.Contains(gotColor, ansiYellow) {
 		t.Errorf("expected yellow marker color in %q", gotColor)
 	}
+	// B-9: cyan (the "healthy basename" color) must NOT appear on a gone row;
+	// the basename should be yellow too so it stands out at a glance.
+	if strings.Contains(gotColor, ansiCyan) {
+		t.Errorf("gone row should not use cyan basename: %q", gotColor)
+	}
+}
+
+// B-10: a session whose cwd we never learned must surface as [cwd?] rather
+// than masquerading as healthy or as [gone].
+func TestFormatLine_CWDUnknownMarker(t *testing.T) {
+	now := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
+	s := &session.Session{
+		ID:         "abc",
+		LastTime:   now.Add(-time.Hour),
+		CWDUnknown: true,
+		Label:      "x",
+	}
+	got := formatLine(s, now, false)
+	if !strings.Contains(got, "[cwd?] ") {
+		t.Errorf("expected '[cwd?] ' marker in %q", got)
+	}
+	if strings.Contains(got, "[gone] ") {
+		t.Errorf("unknown-cwd row should not say [gone]: %q", got)
+	}
+	// Yellow on color path to draw attention.
+	gotColor := formatLine(s, now, true)
+	if !strings.Contains(gotColor, ansiYellow) {
+		t.Errorf("expected yellow on cwd-unknown row: %q", gotColor)
+	}
 }
 
 func TestFormatLine_EmptyBasenameFallsBackToUnknown(t *testing.T) {

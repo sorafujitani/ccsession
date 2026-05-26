@@ -165,6 +165,63 @@ func TestRender_CapsMessagesToMaxMessages(t *testing.T) {
 	}
 }
 
+// B-4: a user/assistant message with no timestamp should render as "--:--"
+// instead of "00:00", which is indistinguishable from real midnight-UTC.
+func TestRender_ZeroTimestampShowsDashes(t *testing.T) {
+	tmp := t.TempDir()
+	body := `{"type":"user","message":{"role":"user","content":"no ts here"}}` + "\n"
+	jsonl := filepath.Join(tmp, "a.jsonl")
+	if err := os.WriteFile(jsonl, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &session.Session{
+		ID:        "abc",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		LastTime:  time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
+	}
+	var buf bytes.Buffer
+	if err := render(s, &buf); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(buf.String(), "--:--") {
+		t.Errorf("expected --:-- for zero timestamp, got %q", buf.String())
+	}
+	if strings.Contains(buf.String(), "[user 00:00]") {
+		t.Errorf("expected --:-- instead of 00:00, got %q", buf.String())
+	}
+}
+
+// B-5: a future-dated session header must not say "(just now)" — the list
+// view's clamp is appropriate there but produces a contradictory header
+// in preview when the absolute date is also shown.
+func TestRender_FutureSessionHeaderSaysFuture(t *testing.T) {
+	tmp := t.TempDir()
+	future := `{"type":"user","timestamp":"2099-01-01T00:00:00Z","message":{"role":"user","content":"hi"}}` + "\n"
+	jsonl := filepath.Join(tmp, "a.jsonl")
+	if err := os.WriteFile(jsonl, []byte(future), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &session.Session{
+		ID:        "abc",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		LastTime:  time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	var buf bytes.Buffer
+	if err := render(s, &buf); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(buf.String(), "in the future") {
+		t.Errorf("expected 'in the future' in header, got %q", buf.String())
+	}
+	if strings.Contains(buf.String(), "just now") {
+		t.Errorf("did not expect 'just now' for a future session, got %q", buf.String())
+	}
+}
+
 // itoa is a tiny strconv.Itoa stand-in to keep imports minimal.
 func itoa(n int) string {
 	if n == 0 {

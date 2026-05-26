@@ -26,8 +26,10 @@ func Run(id string) error {
 	if s == nil {
 		return fmt.Errorf("session not found: %s", id)
 	}
-	if s.CWD == "" {
-		return fmt.Errorf("could not determine cwd for session %s", id)
+	if s.CWDUnknown || s.CWD == "" {
+		return fmt.Errorf("cwd unknown for session %s; refusing to resume "+
+			"(the JSONL had no cwd and the directory-name fallback could "+
+			"not be reconciled with the filesystem)", id)
 	}
 	if !s.CWDExists {
 		return fmt.Errorf("original cwd is gone: %s", s.CWD)
