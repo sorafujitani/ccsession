@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ProjectsDir returns the directory where Claude Code stores transcripts.
@@ -26,7 +27,7 @@ func Scan() ([]*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	paths, err := collectJSONLPaths(base)
+	paths, err := CollectJSONLPaths(base)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +41,7 @@ func ScanFiltered(allow map[string]struct{}) ([]*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	paths, err := collectJSONLPaths(base)
+	paths, err := CollectJSONLPaths(base)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +57,9 @@ func ScanFiltered(allow map[string]struct{}) ([]*Session, error) {
 	return scanPaths(filtered), nil
 }
 
-func collectJSONLPaths(base string) ([]string, error) {
+// CollectJSONLPaths walks the projects directory and returns every session
+// JSONL path, excluding agent-*.jsonl. Returned nil when projects dir doesn't exist.
+func CollectJSONLPaths(base string) ([]string, error) {
 	projDirs, err := os.ReadDir(base)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -117,14 +120,32 @@ func scanPaths(paths []string) []*Session {
 			out = append(out, s)
 		}
 	}
+	nowEpoch := time.Now().Unix()
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].LastEpoch > out[j].LastEpoch
+		ki, kj := sortEpoch(out[i], nowEpoch), sortEpoch(out[j], nowEpoch)
+		if ki != kj {
+			return ki > kj
+		}
+		// Deterministic tiebreak so future-clamped entries don't shuffle.
+		return out[i].ID < out[j].ID
 	})
 	return out
 }
 
+// sortEpoch returns the timestamp to use for ordering. Future timestamps
+// are untrustworthy (typically a clock skew or pasted-in transcript) so
+// they sink to the bottom rather than floating to the top.
+func sortEpoch(s *Session, nowEpoch int64) int64 {
+	if s.LastEpoch > nowEpoch {
+		return 0
+	}
+	return s.LastEpoch
+}
+
 // FindByID scans every project directory looking for a session whose
-// filename matches the given UUID. Returns the parsed session or nil.
+// filename matches the given UUID. Returns ErrSessionFileMissing when no
+// JSONL exists for the id, and ErrSessionEmpty when the file is present
+// but has no usable content.
 func FindByID(id string) (*Session, error) {
 	base, err := ProjectsDir()
 	if err != nil {
@@ -132,6 +153,9 @@ func FindByID(id string) (*Session, error) {
 	}
 	projDirs, err := os.ReadDir(base)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrSessionFileMissing
+		}
 		return nil, err
 	}
 	want := id + ".jsonl"
@@ -144,5 +168,5 @@ func FindByID(id string) (*Session, error) {
 			return ParseSessionTail(candidate, TailReadBytes*4)
 		}
 	}
-	return nil, nil
+	return nil, ErrSessionFileMissing
 }

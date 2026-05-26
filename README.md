@@ -24,7 +24,6 @@ resumes the one you pick in its original working directory.
 | --- | --- |
 | [`fzf`](https://github.com/junegunn/fzf) | interactive picker |
 | `claude` ([Claude Code CLI](https://docs.claude.com/en/docs/claude-code)) | resuming sessions |
-| [`rg`](https://github.com/BurntSushi/ripgrep) | `--grep` / grep mode (optional) |
 
 ## Install
 
@@ -70,10 +69,10 @@ A draft `brews:` section lives in `.goreleaser.yaml`. Once a
 ## Usage
 
 ```sh
-ccsession                      # list -> fzf -> resume
-ccsession list  [--grep Q]     # emit TSV rows to stdout
-ccsession preview <id>         # render the preview pane
-ccsession resume  <id>         # chdir to the session's cwd, exec `claude --resume`
+ccsession                            # list -> fzf -> resume
+ccsession list  [--grep Q] [--regex] # emit TSV rows to stdout
+ccsession preview <id>               # render the preview pane
+ccsession resume  <id>               # chdir to the session's cwd, exec `claude --resume`
 ccsession --version
 ccsession --help
 ```
@@ -82,7 +81,7 @@ ccsession --help
 
 | Key      | Mode |
 | -------- | --- |
-| `Ctrl-G` | grep — refilters via ripgrep on every keystroke |
+| `Ctrl-G` | grep — refilters by user/assistant content on every keystroke |
 | `Ctrl-O` | dir — fuzzy match restricted to the directory column |
 | `Ctrl-F` | fuzzy — default; matches across time / dir / label |
 | `Enter`  | resume the selected session |
@@ -103,7 +102,7 @@ ccsession --help
 ## Development
 
 ```sh
-nix develop                    # Go + fzf + rg + gopls + goreleaser
+nix develop                    # Go + fzf + gopls + goreleaser
 go build ./cmd/ccsession
 go test ./...
 ```

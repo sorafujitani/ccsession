@@ -22,6 +22,7 @@ const (
 // Options controls list output.
 type Options struct {
 	Grep    string
+	Regex   bool
 	NoColor bool
 	Out     io.Writer
 }
@@ -32,7 +33,7 @@ func Run(opts Options) error {
 	if opts.Out == nil {
 		opts.Out = os.Stdout
 	}
-	sessions, err := loadSessions(opts.Grep)
+	sessions, err := loadSessions(opts.Grep, opts.Regex)
 	if err != nil {
 		return err
 	}
@@ -47,11 +48,11 @@ func Run(opts Options) error {
 	return nil
 }
 
-func loadSessions(query string) ([]*session.Session, error) {
+func loadSessions(query string, regex bool) ([]*session.Session, error) {
 	if query == "" {
 		return session.Scan()
 	}
-	allow, err := grep.Filter(query)
+	allow, err := grep.Filter(query, grep.Options{Regex: regex})
 	if err != nil {
 		return nil, err
 	}

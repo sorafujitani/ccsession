@@ -23,7 +23,6 @@
             pkgs.delve
             pkgs.goreleaser
             pkgs.fzf
-            pkgs.ripgrep
           ];
 
           shellHook = ''

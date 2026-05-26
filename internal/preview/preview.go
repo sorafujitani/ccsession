@@ -3,6 +3,7 @@ package preview
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -48,6 +49,12 @@ type messageItem struct {
 func Run(id string) error {
 	s, err := session.FindByID(id)
 	if err != nil {
+		if errors.Is(err, session.ErrSessionFileMissing) {
+			return fmt.Errorf("session not found: %s", id)
+		}
+		if errors.Is(err, session.ErrSessionEmpty) {
+			return fmt.Errorf("session has no usable content: %s", id)
+		}
 		return err
 	}
 	if s == nil {
