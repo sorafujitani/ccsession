@@ -11,7 +11,12 @@ import (
 )
 
 // ProjectsDir returns the directory where Claude Code stores transcripts.
+// If CLAUDE_CONFIG_DIR is set, it uses that as the base directory;
+// otherwise it falls back to ~/.claude.
 func ProjectsDir() (string, error) {
+	if base := os.Getenv("CLAUDE_CONFIG_DIR"); base != "" {
+		return filepath.Join(base, "projects"), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
