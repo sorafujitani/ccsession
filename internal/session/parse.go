@@ -98,10 +98,21 @@ func ParseSessionTail(path string, maxBytes int64) (*Session, error) {
 
 	sess.CWD = cwd
 	if cwd == "" {
-		sess.CWD = restoreCWDFromDir(sess.ProjectDir)
+		// The encoded directory name replaces "/" with "-", which is lossy
+		// for any path that contains a "-". Only trust the recovered path
+		// if it actually exists on disk; otherwise mark the cwd as unknown
+		// rather than silently producing a wrong-but-plausible value.
+		guess := restoreCWDFromDir(sess.ProjectDir)
+		if pathIsDir(guess) {
+			sess.CWD = guess
+		} else {
+			sess.CWDUnknown = true
+		}
 	}
-	sess.CWDBasename = filepath.Base(sess.CWD)
-	sess.CWDExists = pathIsDir(sess.CWD)
+	if sess.CWD != "" {
+		sess.CWDBasename = filepath.Base(sess.CWD)
+		sess.CWDExists = pathIsDir(sess.CWD)
+	}
 
 	if lastTS.IsZero() {
 		if fi, err := os.Stat(path); err == nil {
@@ -191,9 +202,15 @@ func extractText(raw json.RawMessage) string {
 }
 
 func sanitizeLabel(s string) string {
-	s = strings.ReplaceAll(s, "\r", " ")
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.ReplaceAll(s, "\t", " ")
+	// Replace every C0/C1-ish control char (ESC, BEL, DEL, …) with a space,
+	// not just CR/LF/TAB. Pasted ANSI color codes otherwise leak through
+	// and can hijack fzf rendering.
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
 	for strings.Contains(s, "  ") {
 		s = strings.ReplaceAll(s, "  ", " ")
 	}

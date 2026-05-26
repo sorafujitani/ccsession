@@ -26,6 +26,10 @@ type Session struct {
 	LastTime    time.Time
 	LastEpoch   int64
 	CWDExists   bool
+	// CWDUnknown is true when the JSONL had no cwd field and the
+	// directory-name fallback could not be reconciled with the filesystem.
+	// Callers (resume) refuse to act on these sessions.
+	CWDUnknown bool
 }
 
 // entry is the union shape of every JSONL line in a Claude transcript.

@@ -68,14 +68,27 @@ func formatLine(s *session.Session, now time.Time, color bool) string {
 	if base == "" {
 		base = "(unknown)"
 	}
+	// Choose a marker. cwd-unknown sessions get [cwd?] so the user can tell
+	// "the recorded cwd is gone" (B-9) apart from "we never knew the cwd
+	// for this session" (B-10).
 	marker := ""
-	if !s.CWDExists {
+	healthy := true
+	switch {
+	case s.CWDUnknown:
+		marker = "[cwd?] "
+		healthy = false
+	case !s.CWDExists:
 		marker = "[gone] "
+		healthy = false
 	}
 	if color {
 		rel = ansiDim + padRight(rel, 9) + ansiReset
-		base = ansiCyan + base + ansiReset
-		if marker != "" {
+		if healthy {
+			base = ansiCyan + base + ansiReset
+		} else {
+			// Yellow on the basename so a glance picks it up even without
+			// reading the marker prefix (which used to be the only signal).
+			base = ansiYellow + base + ansiReset
 			marker = ansiYellow + marker + ansiReset
 		}
 	} else {

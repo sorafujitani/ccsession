@@ -90,7 +90,7 @@ func render(s *session.Session, out io.Writer) error {
 	fmt.Fprintf(w, "%sstarted%s : %s  %s(%s)%s\n",
 		ansiBold, ansiReset,
 		startedAt.Local().Format("2006-01-02 15:04"),
-		ansiDim, timefmt.Relative(startedAt, now), ansiReset,
+		ansiDim, relativeOrFuture(startedAt, now), ansiReset,
 	)
 	fmt.Fprintf(w, "%slast%s    : %s  %s(%d msgs)%s\n",
 		ansiBold, ansiReset,
@@ -116,7 +116,12 @@ func writeMessage(w io.Writer, m messageItem) {
 		role = "asst"
 		color = ansiCyan
 	}
-	stamp := m.Timestamp.Local().Format("15:04")
+	// A zero time renders as "00:00" by default, which is indistinguishable
+	// from an actual midnight-UTC message; render it as "--:--" instead.
+	stamp := "--:--"
+	if !m.Timestamp.IsZero() {
+		stamp = m.Timestamp.Local().Format("15:04")
+	}
 	body := truncateBody(m.Body)
 	fmt.Fprintf(w, "%s[%s %s]%s %s\n", color, role, stamp, ansiReset, body)
 }
@@ -190,6 +195,17 @@ func loadMessages(path string) ([]messageItem, time.Time, int, error) {
 		total++
 	}
 	return items, startedAt, total, scanner.Err()
+}
+
+// relativeOrFuture wraps timefmt.Relative but renders future timestamps
+// honestly. Relative clamps the future to "just now", which is fine in the
+// list view (one column, glance-time) but produces a contradictory header
+// in the preview ("started 2099-01-01 00:00 (just now)").
+func relativeOrFuture(t, now time.Time) string {
+	if !t.IsZero() && t.After(now) {
+		return "in the future"
+	}
+	return timefmt.Relative(t, now)
 }
 
 func parseTime(raw string) time.Time {

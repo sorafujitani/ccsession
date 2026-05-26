@@ -223,24 +223,32 @@ func TestParseSessionTail_FallsBackToModTimeWhenNoTimestamp(t *testing.T) {
 	}
 }
 
-func TestParseSessionTail_RestoresCWDFromDirWhenMissing(t *testing.T) {
+// B-10: the dir-name fallback turns "-Users-bob-proj" into "/Users/bob/proj",
+// but a real cwd that contained a hyphen (e.g. "/home/foo-bar/proj") would be
+// decoded back to a different path ("/home/foo/bar/proj"). To avoid silently
+// producing a wrong-but-plausible cwd, the parser now refuses the fallback
+// unless it points at a real directory and marks the session CWDUnknown.
+func TestParseSessionTail_MarksCWDUnknownWhenFallbackPathMissing(t *testing.T) {
 	tmp := t.TempDir()
 	encodedProj := filepath.Join(tmp, "-Users-bob-proj")
 	if err := os.MkdirAll(encodedProj, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	body := `{"type":"user","timestamp":"2026-05-26T11:00:00Z","message":{"role":"user","content":"x"}}` + "\n"
+	body := `{"type":"user","timestamp":"2024-05-26T11:00:00Z","message":{"role":"user","content":"x"}}` + "\n"
 	p := writeJSONL(t, encodedProj, "a.jsonl", body)
 
 	s, err := ParseSessionTail(p, TailReadBytes)
 	if err != nil || s == nil {
 		t.Fatalf("ParseSessionTail: %v, s=%v", err, s)
 	}
-	if s.CWD != "/Users/bob/proj" {
-		t.Errorf("CWD = %q, want %q", s.CWD, "/Users/bob/proj")
+	if !s.CWDUnknown {
+		t.Error("CWDUnknown = false, want true")
+	}
+	if s.CWD != "" {
+		t.Errorf("CWD = %q, want empty", s.CWD)
 	}
 	if s.CWDExists {
-		t.Error("CWDExists = true, want false (path doesn't exist)")
+		t.Error("CWDExists = true, want false")
 	}
 }
 
@@ -253,6 +261,13 @@ func TestSanitizeLabel(t *testing.T) {
 		{"a\nb\tc\rd", "a b c d"},
 		{"x  y   z", "x y z"},
 		{"", ""},
+		// B-6: ESC, BEL, DEL and other control chars are replaced with
+		// space so fzf cannot interpret them. The leftover ANSI parameter
+		// bytes (`[31m`) are harmless plain text.
+		{"\x1b[31mRED\x1b[0m", "[31mRED [0m"},
+		{"bel\x07inside", "bel inside"},
+		{"trailing\x7f", "trailing"},
+		{"with\x00null", "with null"},
 	}
 	for _, c := range cases {
 		got := sanitizeLabel(c.in)
