@@ -149,6 +149,12 @@ func truncateBody(s string) string {
 	return joined
 }
 
+// previewLineCap bounds the number of bytes we'll read for a single JSONL
+// line before giving up on it. bufio.Scanner used to cap at 4 MiB and then
+// fail the entire load when a single tool-output line went over; switching
+// to bufio.Reader + ReadString lets us skip the oversize line and continue.
+const previewLineCap = 16 * 1024 * 1024
+
 func loadMessages(path string) ([]messageItem, time.Time, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -156,45 +162,81 @@ func loadMessages(path string) ([]messageItem, time.Time, int, error) {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	r := bufio.NewReaderSize(f, 64*1024)
 
 	var (
 		items     []messageItem
 		startedAt time.Time
 		total     int
 	)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
+	for {
+		line, err := readJSONLLine(r, previewLineCap)
+		if line != "" {
+			if item, ts, ok := parseMessageLine(line); ok {
+				if startedAt.IsZero() && !ts.IsZero() {
+					startedAt = ts
+				}
+				items = append(items, item)
+				total++
+			}
 		}
-		var e previewEntry
-		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			continue
+		if err == io.EOF {
+			return items, startedAt, total, nil
 		}
-		if e.Type != "user" && e.Type != "assistant" {
-			continue
+		if err != nil {
+			return items, startedAt, total, err
 		}
-		if e.Message == nil {
-			continue
-		}
-		body := extractText(e.Message.Content)
-		if body == "" {
-			continue
-		}
-		ts := parseTime(e.Timestamp)
-		if startedAt.IsZero() && !ts.IsZero() {
-			startedAt = ts
-		}
-		items = append(items, messageItem{
-			Role:      e.Type,
-			Timestamp: ts,
-			Body:      body,
-		})
-		total++
 	}
-	return items, startedAt, total, scanner.Err()
+}
+
+// readJSONLLine returns one logical line from r. A line longer than max
+// bytes is discarded entirely (the rest of the line is consumed silently)
+// rather than aborting the whole scan.
+func readJSONLLine(r *bufio.Reader, max int) (string, error) {
+	var (
+		buf       strings.Builder
+		truncated bool
+	)
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if len(chunk) > 0 {
+			if !truncated {
+				if buf.Len()+len(chunk) > max {
+					truncated = true
+				} else {
+					buf.Write(chunk)
+				}
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			// More of the same line remains in the reader.
+			truncated = true
+			continue
+		}
+		if truncated {
+			return "", err
+		}
+		return strings.TrimSpace(buf.String()), err
+	}
+}
+
+func parseMessageLine(line string) (messageItem, time.Time, bool) {
+	var e previewEntry
+	if err := json.Unmarshal([]byte(line), &e); err != nil {
+		return messageItem{}, time.Time{}, false
+	}
+	if e.Type != "user" && e.Type != "assistant" {
+		return messageItem{}, time.Time{}, false
+	}
+	if e.Message == nil {
+		return messageItem{}, time.Time{}, false
+	}
+	body := extractText(e.Message.Content)
+	if body == "" {
+		return messageItem{}, time.Time{}, false
+	}
+	ts := parseTime(e.Timestamp)
+	return messageItem{Role: e.Type, Timestamp: ts, Body: body}, ts, true
 }
 
 // relativeOrFuture wraps timefmt.Relative but renders future timestamps
