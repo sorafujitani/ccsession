@@ -1,6 +1,7 @@
 package preview
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"os"
@@ -219,6 +220,42 @@ func TestRender_FutureSessionHeaderSaysFuture(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "just now") {
 		t.Errorf("did not expect 'just now' for a future session, got %q", buf.String())
+	}
+}
+
+// B-11: a line longer than the byte cap used to be returned as a
+// bufio.Scanner error that aborted the whole scan, leaving the preview
+// half-rendered. The Reader-based loader skips the oversize line and
+// keeps reading.
+func TestReadJSONLLine_SkipsOversizeLinesAndContinues(t *testing.T) {
+	cap := 64
+	huge := strings.Repeat("X", cap*3)
+	body := "first\n" + huge + "\nlast\n"
+	r := bufio.NewReaderSize(strings.NewReader(body), 32)
+
+	line, err := readJSONLLine(r, cap)
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	if line != "first" {
+		t.Errorf("first = %q, want %q", line, "first")
+	}
+
+	// The oversize line is skipped (returns "" and no terminal error).
+	line, err = readJSONLLine(r, cap)
+	if err != nil {
+		t.Fatalf("oversize read: %v", err)
+	}
+	if line != "" {
+		t.Errorf("oversize should be empty, got %q", line)
+	}
+
+	line, err = readJSONLLine(r, cap)
+	if err != nil {
+		t.Fatalf("last read: %v", err)
+	}
+	if line != "last" {
+		t.Errorf("last = %q, want %q", line, "last")
 	}
 }
 

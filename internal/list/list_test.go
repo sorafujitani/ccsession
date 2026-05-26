@@ -1,6 +1,7 @@
 package list
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -121,6 +122,40 @@ func TestFormatLine_EmptyBasenameFallsBackToUnknown(t *testing.T) {
 	if fields[3] != "(unknown)" {
 		t.Errorf("col4 = %q, want '(unknown)'", fields[3])
 	}
+}
+
+// B-12: --color=always|never overrides auto-detection; --no-color and
+// NO_COLOR force off when Color is empty/auto; non-TTY stdout defaults to
+// no color so `ccsession list | cat` stops leaking ANSI codes.
+func TestColorEnabled(t *testing.T) {
+	t.Run("Color=always wins over NoColor", func(t *testing.T) {
+		if !colorEnabled(Options{Color: "always", NoColor: true}) {
+			t.Error("Color=always should override NoColor")
+		}
+	})
+	t.Run("Color=never disables", func(t *testing.T) {
+		if colorEnabled(Options{Color: "never"}) {
+			t.Error("Color=never should be false")
+		}
+	})
+	t.Run("NoColor disables", func(t *testing.T) {
+		if colorEnabled(Options{NoColor: true}) {
+			t.Error("NoColor should be false")
+		}
+	})
+	t.Run("NO_COLOR env disables", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "1")
+		if colorEnabled(Options{}) {
+			t.Error("NO_COLOR env should disable color")
+		}
+	})
+	t.Run("non-TTY writer defaults to off", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "")
+		var buf bytes.Buffer
+		if colorEnabled(Options{Out: &buf}) {
+			t.Error("non-*os.File Out should default to no color")
+		}
+	})
 }
 
 func TestPadRight(t *testing.T) {
