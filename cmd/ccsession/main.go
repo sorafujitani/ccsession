@@ -8,11 +8,17 @@ import (
 	"os"
 	"os/exec"
 	"runtime/debug"
+	"strings"
 
 	"github.com/sorafujitani/ccsession/internal/list"
 	"github.com/sorafujitani/ccsession/internal/preview"
 	"github.com/sorafujitani/ccsession/internal/resume"
 )
+
+// excludeDirEnv is the env var that pipes --exclude-dir down to subcommands
+// and to the fzf bash script. Set by main() when the global --exclude-dir
+// flag is parsed; read by cmdList's flag default and by defaultScript.
+const excludeDirEnv = "CCSESSION_EXCLUDE_DIR"
 
 // These are filled in by `go build -ldflags "-X main.version=... -X main.commit=... -X main.date=..."`.
 // goreleaser and the nix flake set them explicitly. For `go install` builds
@@ -51,17 +57,24 @@ func init() {
 const usage = `ccsession - fzf frontend for "claude --resume"
 
 USAGE:
-  ccsession                       # list -> fzf -> resume
-  ccsession list  [--grep Q]      # TSV rows for fzf
+  ccsession [--exclude-dir <s>]                       # list -> fzf -> resume
+  ccsession list [--grep Q] [--exclude-dir S]         # TSV rows for fzf
   ccsession preview <sessionId>   # preview pane content
   ccsession resume  <sessionId>   # chdir to original cwd, exec claude --resume
   ccsession --help | --version
 
+GLOBAL FLAGS:
+  --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive).
+                      Applied to every list call, including grep/dir/fuzzy
+                      reloads, so the matching directories never appear in
+                      the picker.
+
 LIST FLAGS:
-  --grep <query>   filter sessions by user/assistant content (fixed-string)
-  --regex          treat --grep query as a regular expression
-  --color <mode>   color output: auto (default) | always | never
-  --no-color       shorthand for --color=never
+  --grep <query>      filter sessions by user/assistant content (fixed-string)
+  --regex             treat --grep query as a regular expression
+  --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive)
+  --color <mode>      color output: auto (default) | always | never
+  --no-color          shorthand for --color=never
 
 REQUIRES: fzf, claude.
 `
@@ -69,14 +82,15 @@ REQUIRES: fzf, claude.
 const listUsage = `ccsession list - emit TSV rows for fzf
 
 USAGE:
-  ccsession list [--grep <query>] [--regex] [--color <mode>] [--no-color]
+  ccsession list [--grep <query>] [--regex] [--exclude-dir <s>] [--color <mode>] [--no-color]
 
 FLAGS:
-  --grep <query>   filter sessions by user/assistant content (fixed-string)
-  --regex          treat --grep query as a regular expression
-  --color <mode>   color output: auto (default) | always | never
-                   "auto" emits ANSI only when stdout is a terminal
-  --no-color       shorthand for --color=never
+  --grep <query>      filter sessions by user/assistant content (fixed-string)
+  --regex             treat --grep query as a regular expression
+  --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive)
+  --color <mode>      color output: auto (default) | always | never
+                      "auto" emits ANSI only when stdout is a terminal
+  --no-color          shorthand for --color=never
 `
 
 const previewUsage = `ccsession preview - render the preview pane for a session id
@@ -92,7 +106,12 @@ USAGE:
 `
 
 func main() {
-	args := os.Args[1:]
+	excludeDir, args := parseGlobalFlags(os.Args[1:])
+	if excludeDir != "" {
+		// Propagate to subcommands (cmdList reads it as flag default) and
+		// to the fzf bash script (defaultScript reads it directly).
+		os.Setenv(excludeDirEnv, excludeDir)
+	}
 	if len(args) == 0 {
 		if err := runDefault(); err != nil {
 			fmt.Fprintln(os.Stderr, "ccsession:", err)
@@ -126,6 +145,34 @@ func main() {
 	}
 }
 
+// parseGlobalFlags peels off ccsession-level flags that appear before any
+// subcommand (or before the bare list/preview/resume token). Stops at the
+// first non-flag argument so per-subcommand flag parsing keeps working.
+// Currently only --exclude-dir is recognized; everything else is passed
+// through unchanged.
+func parseGlobalFlags(args []string) (excludeDir string, rest []string) {
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		switch {
+		case a == "--exclude-dir":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "ccsession: --exclude-dir requires a value")
+				os.Exit(2)
+			}
+			excludeDir = args[i+1]
+			i += 2
+		case strings.HasPrefix(a, "--exclude-dir="):
+			excludeDir = strings.TrimPrefix(a, "--exclude-dir=")
+			i++
+		default:
+			rest = append(rest, args[i:]...)
+			return
+		}
+	}
+	return
+}
+
 // newFlagSet builds a FlagSet with project-style usage handling: errors and
 // stray flag output go to stderr via our own messages, and the help block
 // goes to stdout in our format (not Go's stock "Usage of list:" block).
@@ -151,16 +198,20 @@ func cmdList(args []string) {
 	fs := newFlagSet("list", listUsage)
 	grepFlag := fs.String("grep", "", "filter sessions by user/assistant content (fixed-string)")
 	regexFlag := fs.Bool("regex", false, "treat --grep query as a regular expression")
+	// Default from env so `ccsession --exclude-dir foo list` works the same
+	// as `ccsession list --exclude-dir foo`. An explicit flag still wins.
+	excludeDirFlag := fs.String("exclude-dir", os.Getenv(excludeDirEnv), "hide sessions whose cwd contains <s> (case-insensitive)")
 	colorFlag := fs.String("color", "auto", "color output: auto|always|never")
 	noColor := fs.Bool("no-color", false, "shorthand for --color=never")
 	if err := fs.Parse(args); err != nil {
 		handleFlagError("list", fs, err)
 	}
 	if err := list.Run(list.Options{
-		Grep:    *grepFlag,
-		Regex:   *regexFlag,
-		Color:   *colorFlag,
-		NoColor: *noColor,
+		Grep:       *grepFlag,
+		Regex:      *regexFlag,
+		ExcludeDir: *excludeDirFlag,
+		Color:      *colorFlag,
+		NoColor:    *noColor,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession list:", err)
 		os.Exit(1)
@@ -222,8 +273,23 @@ func runDefault() error {
 // dir   mode: fzf's matcher narrowed to the directory column only (column 4).
 // grep  mode: every keystroke reloads the list through `ccsession list --grep`.
 // ctrl-g: grep, ctrl-o: dir, ctrl-f: fuzzy (default).
+//
+// If CCSESSION_EXCLUDE_DIR is set at startup, every list invocation
+// (initial + every reload) is prefixed with --exclude-dir VALUE so the
+// matching sessions never appear in the picker. Two forms are kept:
+// exclude_args[] feeds the direct bash subshell with proper word splitting;
+// $exclude_arg (printf %q) feeds the fzf --bind strings, which sh -c will
+// later re-parse. The value is never typed inside the TUI, so it can't
+// leak into screenshots. The ${arr[@]+...} idiom keeps macOS bash 3.2
+// happy under set -u when the array is empty.
 const defaultScript = `set -u
-id=$("$CCSESSION_BIN" list --color=always | fzf \
+exclude_args=()
+exclude_arg=""
+if [ -n "${CCSESSION_EXCLUDE_DIR:-}" ]; then
+  exclude_args=(--exclude-dir "$CCSESSION_EXCLUDE_DIR")
+  exclude_arg=$(printf -- '--exclude-dir %q' "$CCSESSION_EXCLUDE_DIR")
+fi
+id=$("$CCSESSION_BIN" list --color=always "${exclude_args[@]+"${exclude_args[@]}"}" | fzf \
   --ansi \
   --delimiter=$'\t' \
   --with-nth=3,4,5 \
@@ -233,10 +299,10 @@ id=$("$CCSESSION_BIN" list --color=always | fzf \
   --preview-window=right,60%,wrap \
   --header='[fuzzy] ctrl-g: grep / ctrl-o: dir / ctrl-f: fuzzy / enter: resume' \
   --bind 'start:unbind(change)' \
-  --bind "change:reload(sleep 0.05; $CCSESSION_BIN list --color=always --grep {q})" \
-  --bind "ctrl-g:transform:echo \"change-prompt(grep> )+disable-search+reload(sleep 0.05; $CCSESSION_BIN list --color=always --grep {q})+rebind(change)\"" \
-  --bind "ctrl-o:transform:echo \"change-prompt(dir> )+enable-search+change-nth(2)+reload($CCSESSION_BIN list --color=always)+unbind(change)\"" \
-  --bind "ctrl-f:transform:echo \"change-prompt(> )+enable-search+change-nth(1,2,3)+reload($CCSESSION_BIN list --color=always)+unbind(change)\"" \
+  --bind "change:reload(sleep 0.05; $CCSESSION_BIN list --color=always $exclude_arg --grep {q})" \
+  --bind "ctrl-g:transform:echo \"change-prompt(grep> )+disable-search+reload(sleep 0.05; $CCSESSION_BIN list --color=always $exclude_arg --grep {q})+rebind(change)\"" \
+  --bind "ctrl-o:transform:echo \"change-prompt(dir> )+enable-search+change-nth(2)+reload($CCSESSION_BIN list --color=always $exclude_arg)+unbind(change)\"" \
+  --bind "ctrl-f:transform:echo \"change-prompt(> )+enable-search+change-nth(1,2,3)+reload($CCSESSION_BIN list --color=always $exclude_arg)+unbind(change)\"" \
   | awk -F'\t' '{print $1}') || true
 if [ -n "$id" ]; then
   exec "$CCSESSION_BIN" resume "$id"

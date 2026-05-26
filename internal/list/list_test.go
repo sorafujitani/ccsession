@@ -158,6 +158,35 @@ func TestColorEnabled(t *testing.T) {
 	})
 }
 
+func TestFilterOutByDir(t *testing.T) {
+	mk := func(id, cwd, base string) *session.Session {
+		return &session.Session{ID: id, CWD: cwd, CWDBasename: base}
+	}
+	all := []*session.Session{
+		mk("a", "/Users/x/work/myproj", "myproj"),
+		mk("b", "/Users/x/scratch/test-thing", "test-thing"),
+		mk("c", "/Users/x/work/Test", "Test"),
+		mk("d", "", ""),
+		mk("e", "", "test-fallback"),
+	}
+	in := append([]*session.Session(nil), all...)
+	got := filterOutByDir(in, "test")
+
+	ids := make([]string, len(got))
+	for i, s := range got {
+		ids[i] = s.ID
+	}
+	want := []string{"a", "d"}
+	if len(ids) != len(want) {
+		t.Fatalf("got %v, want %v", ids, want)
+	}
+	for i := range want {
+		if ids[i] != want[i] {
+			t.Errorf("idx %d: got %q, want %q", i, ids[i], want[i])
+		}
+	}
+}
+
 func TestPadRight(t *testing.T) {
 	if got := padRight("ab", 5); got != "ab   " {
 		t.Errorf("padRight(\"ab\", 5) = %q", got)

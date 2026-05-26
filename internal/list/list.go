@@ -22,9 +22,12 @@ const (
 
 // Options controls list output.
 type Options struct {
-	Grep    string
-	Regex   bool
-	NoColor bool
+	Grep string
+	// ExcludeDir drops sessions whose cwd (or basename, when cwd is empty)
+	// contains this substring, case-insensitive. Empty disables the filter.
+	ExcludeDir string
+	Regex      bool
+	NoColor    bool
 	// Color overrides auto-detection: "always", "never", or "" (auto).
 	// --no-color and NO_COLOR still force off when Color is empty/auto.
 	Color string
@@ -40,6 +43,9 @@ func Run(opts Options) error {
 	sessions, err := loadSessions(opts.Grep, opts.Regex)
 	if err != nil {
 		return err
+	}
+	if needle := strings.TrimSpace(opts.ExcludeDir); needle != "" {
+		sessions = filterOutByDir(sessions, needle)
 	}
 	color := colorEnabled(opts)
 	now := time.Now()
@@ -85,6 +91,22 @@ func isTerminal(f *os.File) bool {
 		return false
 	}
 	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+func filterOutByDir(sessions []*session.Session, needle string) []*session.Session {
+	lneedle := strings.ToLower(needle)
+	out := sessions[:0]
+	for _, s := range sessions {
+		target := s.CWD
+		if target == "" {
+			target = s.CWDBasename
+		}
+		if target != "" && strings.Contains(strings.ToLower(target), lneedle) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func loadSessions(query string, regex bool) ([]*session.Session, error) {
