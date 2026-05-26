@@ -111,3 +111,15 @@ dist
 
 # TernJS port file
 .tern-port
+
+# Go build artifacts
+/ccsession
+/bin/
+/dist/
+*.test
+*.out
+
+# Nix
+/result
+/result-*
+.direnv/
