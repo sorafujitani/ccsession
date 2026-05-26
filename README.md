@@ -93,7 +93,3 @@ ls dist/
 nix build
 ./result/bin/ccsession --version
 ```
-
-## 設計
-
-[`.claude/plans/001-mvp-design.md`](./.claude/plans/001-mvp-design.md) を参照。
