@@ -1,95 +1,133 @@
 # ccsession
 
-`claude --resume` のための fzf フロントエンド。`~/.claude/projects` 配下の過去セッションを全プロジェクト横断で列挙し、プレビュー付きで選んで復帰する。
+> An fzf-powered session picker for `claude --resume`.
 
-## 動作要件
+`ccsession` lists every Claude Code session under `~/.claude/projects`, lets
+you fuzzy-find across all of your projects with a live preview pane, and
+resumes the one you pick in its original working directory.
 
-| 種別 | コマンド | 必須 |
-| --- | --- | --- |
-| ランチャー | `fzf` | ◯ |
-| 復帰先 | `claude` (Claude Code CLI) | ◯ |
-| 中身 grep | `rg` (ripgrep) | `--grep` / grep モード時のみ |
+## Features
 
-## インストール
+- **Cross-project listing** — every session from every project in one view,
+  sorted by last activity.
+- **Three search modes** — fuzzy (default), directory-only, and full-text
+  grep over JSONL transcripts.
+- **Live preview** — last 30 messages of the highlighted session, with
+  timestamps and roles.
+- **Faithful resume** — `chdir`s back to the session's original `cwd` before
+  exec'ing `claude --resume`, so paths and tooling Just Work.
+- **Single static binary** — written in Go with only the standard library.
 
-### a. `go install` (Go ツールチェイン持ち向け)
+## Requirements
+
+| Tool | Required for |
+| --- | --- |
+| [`fzf`](https://github.com/junegunn/fzf) | interactive picker |
+| `claude` ([Claude Code CLI](https://docs.claude.com/en/docs/claude-code)) | resuming sessions |
+| [`rg`](https://github.com/BurntSushi/ripgrep) | `--grep` / grep mode (optional) |
+
+## Install
+
+### Go
 
 ```sh
 go install github.com/sorafujitani/ccsession/cmd/ccsession@latest
 ```
 
-`go install` 経由でもバージョンは `runtime/debug.ReadBuildInfo` から復元されるので `ccsession --version` で確認できる。
+Version metadata is recovered from `runtime/debug.ReadBuildInfo`, so
+`ccsession --version` works for `go install` builds as well.
 
-### b. GitHub Release のバイナリ tarball
+### Pre-built binaries
 
-[Releases](https://github.com/sorafujitani/ccsession/releases) から OS/Arch に合った `ccsession_<ver>_<os>_<arch>.tar.gz` を落として展開し、PATH の通った場所へ置く。
+Grab the `ccsession_<ver>_<os>_<arch>.tar.gz` for your platform from the
+[Releases](https://github.com/sorafujitani/ccsession/releases) page, extract
+it, and drop the binary somewhere on your `PATH`:
 
 ```sh
 tar xzf ccsession_0.1.0_darwin_arm64.tar.gz
 install -m 0755 ccsession ~/.local/bin/
 ```
 
-macOS の Gatekeeper に弾かれた場合は一度だけ:
+If macOS Gatekeeper complains:
 
 ```sh
 xattr -d com.apple.quarantine ~/.local/bin/ccsession
 ```
 
-### c. Nix flake
-
-一度だけ実行:
+### Nix flake
 
 ```sh
-nix run github:sorafujitani/ccsession
+nix run github:sorafujitani/ccsession             # one-off
+nix profile install github:sorafujitani/ccsession # install into a profile
 ```
 
-プロファイルに入れる:
+### Homebrew (planned)
+
+A draft `brews:` section lives in `.goreleaser.yaml`. Once a
+`sorafujitani/homebrew-tap` repository is published,
+`brew install sorafujitani/tap/ccsession` will work.
+
+## Usage
 
 ```sh
-nix profile install github:sorafujitani/ccsession
-```
-
-### d. Homebrew (将来)
-
-`.goreleaser.yaml` に tap 用の下書きを残してあるので、`sorafujitani/homebrew-tap` を用意し、対応する `brews:` セクションを有効化すれば `brew install sorafujitani/tap/ccsession` で入るようになる。
-
-## 使い方
-
-```sh
-ccsession                      # list -> fzf -> resume の一括フロー
-ccsession list  [--grep Q]     # TSV 行を stdout に出す
-ccsession preview <id>         # プレビュー描画
-ccsession resume  <id>         # 元 cwd に cd して `claude --resume <id>` を exec
+ccsession                      # list -> fzf -> resume
+ccsession list  [--grep Q]     # emit TSV rows to stdout
+ccsession preview <id>         # render the preview pane
+ccsession resume  <id>         # chdir to the session's cwd, exec `claude --resume`
 ccsession --version
 ccsession --help
 ```
 
-fzf 内のキー:
+### Keys inside fzf
 
-- `Ctrl-G`: grep モード (キーストロークごとに ripgrep で再フィルタ)
-- `Ctrl-O`: dir モード (ディレクトリ名カラムだけに fuzzy マッチ)
-- `Ctrl-F`: fuzzy モードへ戻る (時刻/ディレクトリ名/ラベルを横断)
-- `Enter`: 選択して resume
-- `ESC`: キャンセル
+| Key      | Mode |
+| -------- | --- |
+| `Ctrl-G` | grep — refilters via ripgrep on every keystroke |
+| `Ctrl-O` | dir — fuzzy match restricted to the directory column |
+| `Ctrl-F` | fuzzy — default; matches across time / dir / label |
+| `Enter`  | resume the selected session |
+| `Esc`    | cancel |
 
-## 開発
+## How it works
+
+1. `ccsession list` walks `~/.claude/projects/*/`, reads the tail of each
+   JSONL transcript in parallel, and prints one TSV row per session
+   (`id`, `epoch`, relative time, cwd basename, label).
+2. `fzf` consumes the TSV. The three key bindings swap fzf's matcher
+   between fuzzy mode, directory-only mode, and grep mode (which reloads
+   via `ccsession list --grep <query>` on every keystroke).
+3. On `Enter`, `ccsession resume <id>` resolves the session's original
+   `cwd`, `chdir`s into it, and `execve`s `claude --resume <id>` so the
+   resumed process fully replaces the picker.
+
+## Development
 
 ```sh
-nix develop                    # Go + fzf + rg + gopls + goreleaser が揃った shell
+nix develop                    # Go + fzf + rg + gopls + goreleaser
 go build ./cmd/ccsession
 go test ./...
 ```
 
-### ローカルでリリース成果物を確認
+### Snapshot a release locally
 
 ```sh
 goreleaser release --snapshot --clean --skip=publish
 ls dist/
 ```
 
-### Nix で直接ビルド
+### Build with Nix
 
 ```sh
 nix build
 ./result/bin/ccsession --version
 ```
+
+## Contributing
+
+Bug reports and pull requests are welcome at
+<https://github.com/sorafujitani/ccsession>. For larger changes, please
+open an issue first to discuss what you'd like to change.
+
+## License
+
+[MIT](./LICENSE)
