@@ -2,8 +2,18 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 )
+
+// ErrSessionFileMissing is returned by FindByID when no JSONL file matches
+// the session id. Callers distinguish this from a file that exists but
+// contains no usable content (see ErrSessionEmpty).
+var ErrSessionFileMissing = errors.New("session file missing")
+
+// ErrSessionEmpty is returned by ParseSessionTail / FindByID when the file
+// exists but has no user message or no extractable label.
+var ErrSessionEmpty = errors.New("session has no usable content")
 
 // Session is a parsed view of one Claude Code session transcript.
 type Session struct {

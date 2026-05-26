@@ -17,11 +17,15 @@ const TailReadBytes int64 = 64 * 1024
 // LabelMaxLen is the max length of the label string after sanitization.
 const LabelMaxLen = 200
 
-// ParseSessionTail reads the tail of one JSONL transcript and returns a Session,
-// or (nil, nil) when the session should be excluded (no user messages / no label).
+// ParseSessionTail reads the tail of one JSONL transcript and returns a Session.
+// Returns ErrSessionEmpty when the file exists but has no user message or no
+// extractable label. Returns ErrSessionFileMissing when the file is absent.
 func ParseSessionTail(path string, maxBytes int64) (*Session, error) {
 	buf, err := readTail(path, maxBytes)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrSessionFileMissing
+		}
 		return nil, err
 	}
 
@@ -78,14 +82,19 @@ func ParseSessionTail(path string, maxBytes int64) (*Session, error) {
 	}
 
 	if !hasUser {
-		return nil, nil
+		return nil, ErrSessionEmpty
 	}
 
 	label := firstNonEmpty(aiTitle, lastPrompt, lastUserText)
 	if label == "" {
-		return nil, nil
+		return nil, ErrSessionEmpty
 	}
 	sess.Label = sanitizeLabel(label)
+	// Defense in depth: if every label candidate sanitized to empty
+	// (e.g., a label that was just control chars), treat as empty.
+	if sess.Label == "" {
+		return nil, ErrSessionEmpty
+	}
 
 	sess.CWD = cwd
 	if cwd == "" {
@@ -205,7 +214,7 @@ func truncate(s string, n int) string {
 
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
-		if v != "" {
+		if strings.TrimSpace(v) != "" {
 			return v
 		}
 	}

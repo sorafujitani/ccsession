@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,13 +66,13 @@ func TestScan_SortedNewestFirstAndExcludesAgentAndNonJSONL(t *testing.T) {
 
 	// older session in A
 	writeSessionFile(t, projA, "11111111-1111-1111-1111-111111111111.jsonl",
-		"2026-05-26T10:00:00Z", "older")
+		"2024-05-26T10:00:00Z", "older")
 	// newer session in A
 	writeSessionFile(t, projA, "22222222-2222-2222-2222-222222222222.jsonl",
-		"2026-05-26T12:00:00Z", "newer")
+		"2024-05-26T12:00:00Z", "newer")
 	// middle session in B
 	writeSessionFile(t, projB, "33333333-3333-3333-3333-333333333333.jsonl",
-		"2026-05-26T11:00:00Z", "middle")
+		"2024-05-26T11:00:00Z", "middle")
 
 	// excluded: agent-* prefix
 	writeSessionFile(t, projA, "agent-deadbeef.jsonl",
@@ -114,9 +115,9 @@ func TestScanFiltered_AllowSetRestrictsResults(t *testing.T) {
 
 	proj := filepath.Join(projects, "-tmp-a")
 	writeSessionFile(t, proj, "11111111-1111-1111-1111-111111111111.jsonl",
-		"2026-05-26T10:00:00Z", "keep")
+		"2024-05-26T10:00:00Z", "keep")
 	writeSessionFile(t, proj, "22222222-2222-2222-2222-222222222222.jsonl",
-		"2026-05-26T11:00:00Z", "drop")
+		"2024-05-26T11:00:00Z", "drop")
 
 	allow := map[string]struct{}{
 		filepath.Join(proj, "11111111-1111-1111-1111-111111111111.jsonl"): {},
@@ -136,7 +137,7 @@ func TestScanFiltered_EmptyAllowReturnsNothing(t *testing.T) {
 
 	proj := filepath.Join(projects, "-tmp-a")
 	writeSessionFile(t, proj, "11111111-1111-1111-1111-111111111111.jsonl",
-		"2026-05-26T10:00:00Z", "x")
+		"2024-05-26T10:00:00Z", "x")
 
 	got, err := ScanFiltered(map[string]struct{}{})
 	if err != nil {
@@ -153,7 +154,7 @@ func TestFindByID_HitAndMiss(t *testing.T) {
 
 	proj := filepath.Join(projects, "-tmp-a")
 	writeSessionFile(t, proj, "11111111-1111-1111-1111-111111111111.jsonl",
-		"2026-05-26T10:00:00Z", "found")
+		"2024-05-26T10:00:00Z", "found")
 
 	got, err := FindByID("11111111-1111-1111-1111-111111111111")
 	if err != nil {
@@ -163,11 +164,70 @@ func TestFindByID_HitAndMiss(t *testing.T) {
 		t.Fatalf("got %+v, want 'found' session", got)
 	}
 
+	// B-3: a missing id must return ErrSessionFileMissing, not (nil, nil).
 	miss, err := FindByID("00000000-0000-0000-0000-000000000000")
-	if err != nil {
-		t.Fatalf("FindByID miss: %v", err)
+	if !errors.Is(err, ErrSessionFileMissing) {
+		t.Fatalf("err = %v, want ErrSessionFileMissing", err)
 	}
 	if miss != nil {
 		t.Errorf("expected nil for missing id, got %+v", miss)
+	}
+}
+
+// B-3: distinguish a file that's missing from a file that exists but has
+// no usable content (no user message / empty label).
+func TestFindByID_PresentButEmptyReturnsErrSessionEmpty(t *testing.T) {
+	home, projects := makeFakeHome(t)
+	t.Setenv("HOME", home)
+
+	proj := filepath.Join(projects, "-tmp-a")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// File exists but contains only an assistant entry — no user message.
+	body := `{"type":"assistant","timestamp":"2024-05-26T11:00:00Z"}` + "\n"
+	if err := os.WriteFile(
+		filepath.Join(proj, "44444444-4444-4444-4444-444444444444.jsonl"),
+		[]byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := FindByID("44444444-4444-4444-4444-444444444444")
+	if !errors.Is(err, ErrSessionEmpty) {
+		t.Fatalf("err = %v, want ErrSessionEmpty", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil session, got %+v", got)
+	}
+}
+
+// B-2: a future-dated session must not float to the top of the sort.
+func TestScan_FutureTimestampSinksToBottom(t *testing.T) {
+	home, projects := makeFakeHome(t)
+	t.Setenv("HOME", home)
+
+	proj := filepath.Join(projects, "-tmp-a")
+	// Two current sessions.
+	writeSessionFile(t, proj, "11111111-1111-1111-1111-111111111111.jsonl",
+		"2024-05-26T10:00:00Z", "older")
+	writeSessionFile(t, proj, "22222222-2222-2222-2222-222222222222.jsonl",
+		"2024-05-26T12:00:00Z", "newer")
+	// One far-future session.
+	writeSessionFile(t, proj, "33333333-3333-3333-3333-333333333333.jsonl",
+		"2099-01-01T00:00:00Z", "future")
+
+	got, err := Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d sessions, want 3", len(got))
+	}
+	if got[0].Label == "future" {
+		t.Errorf("future session sorted at top: %+v", got)
+	}
+	if got[len(got)-1].Label != "future" {
+		t.Errorf("future session expected at the bottom, got order %v",
+			[]string{got[0].Label, got[1].Label, got[2].Label})
 	}
 }

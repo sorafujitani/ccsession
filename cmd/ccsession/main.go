@@ -56,10 +56,11 @@ USAGE:
   ccsession --help | --version
 
 LIST FLAGS:
-  --grep <query>   filter sessions by content (requires ripgrep)
+  --grep <query>   filter sessions by user/assistant content (fixed-string)
+  --regex          treat --grep query as a regular expression
   --no-color       disable ANSI color output
 
-REQUIRES: fzf, claude. ripgrep only when --grep / grep mode is used.
+REQUIRES: fzf, claude.
 `
 
 func main() {
@@ -97,12 +98,13 @@ func main() {
 
 func cmdList(args []string) {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
-	grepFlag := fs.String("grep", "", "filter sessions by content (ripgrep)")
+	grepFlag := fs.String("grep", "", "filter sessions by user/assistant content (fixed-string)")
+	regexFlag := fs.Bool("regex", false, "treat --grep query as a regular expression")
 	noColor := fs.Bool("no-color", false, "disable ANSI colors")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
-	if err := list.Run(list.Options{Grep: *grepFlag, NoColor: *noColor}); err != nil {
+	if err := list.Run(list.Options{Grep: *grepFlag, Regex: *regexFlag, NoColor: *noColor}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession list:", err)
 		os.Exit(1)
 	}

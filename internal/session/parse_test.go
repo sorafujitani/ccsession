@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,29 +106,60 @@ func TestParseSessionTail_FallbackToUserText_BlockContent(t *testing.T) {
 	}
 }
 
-func TestParseSessionTail_NoUserReturnsNil(t *testing.T) {
+func TestParseSessionTail_NoUserReturnsErrSessionEmpty(t *testing.T) {
 	tmp := t.TempDir()
 	body := `{"type":"assistant","timestamp":"2026-05-26T11:00:00Z"}` + "\n"
 	p := writeJSONL(t, tmp, "a.jsonl", body)
 
 	s, err := ParseSessionTail(p, TailReadBytes)
-	if err != nil {
-		t.Fatalf("err: %v", err)
+	if !errors.Is(err, ErrSessionEmpty) {
+		t.Fatalf("err = %v, want ErrSessionEmpty", err)
 	}
 	if s != nil {
 		t.Errorf("expected nil session, got %+v", s)
 	}
 }
 
-func TestParseSessionTail_NoLabelReturnsNil(t *testing.T) {
+func TestParseSessionTail_NoLabelReturnsErrSessionEmpty(t *testing.T) {
 	tmp := t.TempDir()
 	// user message with empty content blocks → no extractable text
 	body := `{"type":"user","timestamp":"2026-05-26T11:00:00Z","message":{"role":"user","content":[]}}` + "\n"
 	p := writeJSONL(t, tmp, "a.jsonl", body)
 
 	s, err := ParseSessionTail(p, TailReadBytes)
-	if err != nil {
-		t.Fatalf("err: %v", err)
+	if !errors.Is(err, ErrSessionEmpty) {
+		t.Fatalf("err = %v, want ErrSessionEmpty", err)
+	}
+	if s != nil {
+		t.Errorf("expected nil session, got %+v", s)
+	}
+}
+
+// B-1: a label that is only whitespace must be treated as empty, not silently
+// passed through to render a blank label cell.
+func TestParseSessionTail_WhitespaceLabelReturnsErrSessionEmpty(t *testing.T) {
+	tmp := t.TempDir()
+	body := `{"type":"user","timestamp":"2026-05-26T11:00:00Z","message":{"role":"user","content":"   "}}` + "\n"
+	p := writeJSONL(t, tmp, "a.jsonl", body)
+
+	s, err := ParseSessionTail(p, TailReadBytes)
+	if !errors.Is(err, ErrSessionEmpty) {
+		t.Fatalf("err = %v, want ErrSessionEmpty", err)
+	}
+	if s != nil {
+		t.Errorf("expected nil session, got %+v", s)
+	}
+}
+
+// B-3: a session id with no file on disk must return ErrSessionFileMissing
+// via the wrapping read path.
+func TestParseSessionTail_MissingFileReturnsErrSessionFileMissing(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "ghost.jsonl")
+
+	s, err := ParseSessionTail(p, TailReadBytes)
+	if !errors.Is(err, ErrSessionFileMissing) {
+		t.Fatalf("err = %v, want ErrSessionFileMissing", err)
 	}
 	if s != nil {
 		t.Errorf("expected nil session, got %+v", s)
@@ -272,6 +304,13 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 	if got := firstNonEmpty("", ""); got != "" {
 		t.Errorf("got %q, want empty", got)
+	}
+	// B-1: whitespace-only candidates must be skipped.
+	if got := firstNonEmpty("   ", "\n\t", "real"); got != "real" {
+		t.Errorf("whitespace skip: got %q, want real", got)
+	}
+	if got := firstNonEmpty("   ", "\n"); got != "" {
+		t.Errorf("all-whitespace should be empty: got %q", got)
 	}
 }
 

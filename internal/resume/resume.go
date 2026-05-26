@@ -1,6 +1,7 @@
 package resume
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,12 @@ import (
 func Run(id string) error {
 	s, err := session.FindByID(id)
 	if err != nil {
+		if errors.Is(err, session.ErrSessionFileMissing) {
+			return fmt.Errorf("session not found: %s", id)
+		}
+		if errors.Is(err, session.ErrSessionEmpty) {
+			return fmt.Errorf("session has no usable content: %s", id)
+		}
 		return err
 	}
 	if s == nil {
