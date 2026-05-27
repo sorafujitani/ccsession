@@ -274,6 +274,14 @@ func runDefault() error {
 // grep  mode: every keystroke reloads the list through `ccsession list --grep`.
 // ctrl-g: grep, ctrl-o: dir, ctrl-f: fuzzy (default).
 //
+// --no-hscroll anchors every row at its left edge. Without it, fzf scrolls a
+// row sideways to reveal the matched substring, so a query that hits the label
+// (the rightmost column) pushes the time+dir prefix off-screen behind a "··"
+// ellipsis while a query that hits the dir keeps it visible. That left every
+// row looking different depending on where the match landed; anchoring left
+// keeps the time+dir prefix as the start of every row (the match may instead
+// be truncated on the right, but the preview pane shows the full content).
+//
 // If CCSESSION_EXCLUDE_DIR is set at startup, every list invocation
 // (initial + every reload) is prefixed with --exclude-dir VALUE so the
 // matching sessions never appear in the picker. Two forms are kept:
@@ -295,6 +303,7 @@ id=$("$CCSESSION_BIN" list --color=always "${exclude_args[@]+"${exclude_args[@]}
   --with-nth=3,4,5 \
   --nth=1,2,3 \
   --no-sort \
+  --no-hscroll \
   --preview "$CCSESSION_BIN preview {1}" \
   --preview-window=right,60%,wrap \
   --header='[fuzzy] ctrl-g: grep / ctrl-o: dir / ctrl-f: fuzzy / enter: resume' \
