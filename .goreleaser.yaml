@@ -68,19 +68,27 @@ release:
     ---
     インストール手順は README を参照。
 
-# Homebrew tap への公開は、別途 `sorafujitani/homebrew-tap` リポジトリを
-# 用意して GITHUB_TOKEN に push 権限を与えた段階で有効化する。
-# brews:
-#   - repository:
-#       owner: sorafujitani
-#       name: homebrew-tap
-#     homepage: "https://github.com/sorafujitani/ccsession"
-#     description: "fzf frontend for claude --resume"
-#     license: "MIT"
-#     dependencies:
-#       - name: fzf
-#       - name: ripgrep
-#     install: |
-#       bin.install "ccsession"
-#     test: |
-#       system "#{bin}/ccsession --version"
+# Homebrew tap への公開。`sorafujitani/homebrew-tap` へ push できる PAT を
+# CI の secret `HOMEBREW_TAP_GITHUB_TOKEN` に登録すると、タグを切るたびに
+# Formula/ccsession.rb が自動更新される。
+brews:
+  - name: ccsession
+    repository:
+      owner: sorafujitani
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/sorafujitani/ccsession"
+    description: "Fuzzy session picker for claude --resume"
+    license: "MIT"
+    dependencies:
+      - name: fzf
+    install: |
+      bin.install "ccsession"
+    test: |
+      system "#{bin}/ccsession", "--version"
+    caveats: |
+      ccsession resumes sessions through the `claude` CLI (Claude Code), which
+      is not distributed via Homebrew. Install it separately:
+        https://docs.claude.com/en/docs/claude-code

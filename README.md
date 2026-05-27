@@ -60,11 +60,16 @@ nix run github:sorafujitani/ccsession             # one-off
 nix profile install github:sorafujitani/ccsession # install into a profile
 ```
 
-### Homebrew (planned)
+### Homebrew
 
-A draft `brews:` section lives in `.goreleaser.yaml`. Once a
-`sorafujitani/homebrew-tap` repository is published,
-`brew install sorafujitani/tap/ccsession` will work.
+```sh
+brew install sorafujitani/tap/ccsession
+```
+
+The formula lives in
+[`sorafujitani/homebrew-tap`](https://github.com/sorafujitani/homebrew-tap)
+and GoReleaser refreshes it on every tagged release. `fzf` is installed as a
+dependency; the `claude` CLI must be installed separately.
 
 ## Usage
 
