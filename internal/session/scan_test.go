@@ -12,7 +12,7 @@ import (
 func makeFakeHome(t *testing.T) (string, string) {
 	t.Helper()
 	home := t.TempDir()
-	projects := filepath.Join(home, ".claude", "projects")
+	projects := filepath.Join(home, "home", ".claude", "projects")
 	if err := os.MkdirAll(projects, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -41,6 +41,27 @@ func TestProjectsDir_UsesHomeEnv(t *testing.T) {
 	}
 	if got != projects {
 		t.Errorf("ProjectsDir = %q, want %q", got, projects)
+	}
+}
+
+func TestProjectsDir_UsesConfigDirEnv(t *testing.T) {
+	base := filepath.Join(t.TempDir(), ".config")
+	projects := filepath.Join(base, "projects")
+	if err := os.MkdirAll(projects, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", base)
+
+	// Prefer $CLAUDE_CODE_DIR over $HOME
+	home, _ := makeFakeHome(t)
+	t.Setenv("HOME", home)
+
+	got, err := ProjectsDir()
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if got != projects {
+		t.Errorf("%q, want %q", got, projects)
 	}
 }
 
