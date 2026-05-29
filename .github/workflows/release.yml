@@ -23,7 +23,10 @@ jobs:
 
       - uses: goreleaser/goreleaser-action@v6
         with:
-          version: latest
+          # Pin to the 2.15.x line: `brews` (Homebrew Formula) was removed in
+          # v2.16 in favor of `homebrew_casks`. Staying on 2.15.x keeps the
+          # current formula-based tap working until we migrate to casks.
+          version: "~> v2.15.0"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
