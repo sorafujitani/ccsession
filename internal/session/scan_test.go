@@ -44,6 +44,27 @@ func TestProjectsDir_UsesHomeEnv(t *testing.T) {
 	}
 }
 
+func TestProjectsDir_UsesConfigDirEnv(t *testing.T) {
+	configDir := t.TempDir()
+	projects := filepath.Join(configDir, "projects")
+	if err := os.MkdirAll(projects, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+
+	// Confirm $CLAUDE_CONFIG_DIR takes precedence over $HOME
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	got, err := ProjectsDir()
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if got != projects {
+		t.Errorf("%q, want %q", got, projects)
+	}
+}
+
 func TestScan_EmptyWhenNoProjectsDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home) // no .claude/projects under here
