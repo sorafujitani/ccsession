@@ -96,7 +96,11 @@ FLAGS:
 const previewUsage = `ccsession preview - render the preview pane for a session id
 
 USAGE:
-  ccsession preview <sessionId>
+  ccsession preview [--query <query>] [--regex] <sessionId>
+
+FLAGS:
+  --query <query>     highlight matches of <query> in the preview (fixed-string)
+  --regex             treat --query as a regular expression
 `
 
 const resumeUsage = `ccsession resume - chdir to the session's cwd and exec "claude --resume"
@@ -220,6 +224,8 @@ func cmdList(args []string) {
 
 func cmdPreview(args []string) {
 	fs := newFlagSet("preview", previewUsage)
+	queryFlag := fs.String("query", "", "highlight matches of <query> in the preview")
+	regexFlag := fs.Bool("regex", false, "treat --query as a regular expression")
 	if err := fs.Parse(args); err != nil {
 		handleFlagError("preview", fs, err)
 	}
@@ -229,7 +235,7 @@ func cmdPreview(args []string) {
 		fs.Usage()
 		os.Exit(2)
 	}
-	if err := preview.Run(rest[0]); err != nil {
+	if err := preview.Run(rest[0], preview.Options{Query: *queryFlag, Regex: *regexFlag}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession preview:", err)
 		os.Exit(1)
 	}
@@ -282,6 +288,10 @@ func runDefault() error {
 // keeps the time+dir prefix as the start of every row (the match may instead
 // be truncated on the right, but the preview pane shows the full content).
 //
+// --color hl/hl+ are set to reverse video so fzf's own match highlight in
+// the list (fuzzy/dir modes) matches the reverse-video highlight the preview
+// applies to the query, instead of fzf's default colored background.
+//
 // If CCSESSION_EXCLUDE_DIR is set at startup, every list invocation
 // (initial + every reload) is prefixed with --exclude-dir VALUE so the
 // matching sessions never appear in the picker. Two forms are kept:
@@ -304,7 +314,8 @@ id=$("$CCSESSION_BIN" list --color=always "${exclude_args[@]+"${exclude_args[@]}
   --nth=1,2,3 \
   --no-sort \
   --no-hscroll \
-  --preview "$CCSESSION_BIN preview {1}" \
+  --color='hl:-1:reverse,hl+:-1:reverse' \
+  --preview "$CCSESSION_BIN preview --query {q} {1}" \
   --preview-window=right,60%,wrap \
   --header='[fuzzy] ctrl-g: grep / ctrl-o: dir / ctrl-f: fuzzy / enter: resume' \
   --bind 'start:unbind(change)' \
