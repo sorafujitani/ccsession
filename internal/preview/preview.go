@@ -11,19 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sorafujitani/ccsession/internal/ansi"
 	"github.com/sorafujitani/ccsession/internal/session"
 	"github.com/sorafujitani/ccsession/internal/timefmt"
-)
-
-const (
-	ansiReset  = "\x1b[0m"
-	ansiBold   = "\x1b[1m"
-	ansiDim    = "\x1b[2m"
-	ansiCyan   = "\x1b[36m"
-	ansiGreen  = "\x1b[32m"
-	ansiYellow = "\x1b[33m"
-	// ansiHighlight marks substrings matching the grep query (reverse video).
-	ansiHighlight = "\x1b[7m"
 )
 
 // Options controls preview rendering. Query, when non-empty, highlights its
@@ -87,28 +77,28 @@ func render(s *session.Session, out io.Writer, opts Options) error {
 	w := bufio.NewWriter(out)
 	defer w.Flush()
 
-	fmt.Fprintf(w, "%ssession%s : %s\n", ansiBold, ansiReset, s.ID)
+	fmt.Fprintf(w, "%ssession%s : %s\n", ansi.Bold, ansi.Reset, s.ID)
 	cwd := s.CWD
 	if cwd == "" {
 		cwd = "(unknown)"
 	}
 	if !s.CWDExists {
-		cwd = ansiYellow + cwd + " [gone]" + ansiReset
+		cwd = ansi.Yellow + cwd + " [gone]" + ansi.Reset
 	} else {
-		cwd = ansiCyan + cwd + ansiReset
+		cwd = ansi.Cyan + cwd + ansi.Reset
 	}
-	fmt.Fprintf(w, "%sproject%s : %s\n", ansiBold, ansiReset, cwd)
+	fmt.Fprintf(w, "%sproject%s : %s\n", ansi.Bold, ansi.Reset, cwd)
 	fmt.Fprintf(w, "%sstarted%s : %s  %s(%s)%s\n",
-		ansiBold, ansiReset,
+		ansi.Bold, ansi.Reset,
 		startedAt.Local().Format("2006-01-02 15:04"),
-		ansiDim, relativeOrFuture(startedAt, now), ansiReset,
+		ansi.Dim, relativeOrFuture(startedAt, now), ansi.Reset,
 	)
 	fmt.Fprintf(w, "%slast%s    : %s  %s(%d msgs)%s\n",
-		ansiBold, ansiReset,
+		ansi.Bold, ansi.Reset,
 		s.LastTime.Local().Format("2006-01-02 15:04"),
-		ansiDim, totalMsgs, ansiReset,
+		ansi.Dim, totalMsgs, ansi.Reset,
 	)
-	fmt.Fprintln(w, ansiDim+strings.Repeat("─", 60)+ansiReset)
+	fmt.Fprintln(w, ansi.Dim+strings.Repeat("─", 60)+ansi.Reset)
 
 	tail := messages
 	if len(tail) > maxMessages {
@@ -122,10 +112,10 @@ func render(s *session.Session, out io.Writer, opts Options) error {
 
 func writeMessage(w io.Writer, m messageItem, opts Options) {
 	role := m.Role
-	color := ansiGreen
+	color := ansi.Green
 	if role == "assistant" {
 		role = "asst"
-		color = ansiCyan
+		color = ansi.Cyan
 	}
 	// A zero time renders as "00:00" by default, which is indistinguishable
 	// from an actual midnight-UTC message; render it as "--:--" instead.
@@ -134,7 +124,7 @@ func writeMessage(w io.Writer, m messageItem, opts Options) {
 		stamp = m.Timestamp.Local().Format("15:04")
 	}
 	body := highlightMatches(truncateBody(m.Body), opts)
-	fmt.Fprintf(w, "%s[%s %s]%s %s\n", color, role, stamp, ansiReset, body)
+	fmt.Fprintf(w, "%s[%s %s]%s %s\n", color, role, stamp, ansi.Reset, body)
 }
 
 // highlightMatches wraps every case-insensitive match of opts.Query in s with
@@ -164,9 +154,9 @@ func highlightMatches(s string, opts Options) string {
 			continue
 		}
 		b.WriteString(s[last:loc[0]])
-		b.WriteString(ansiHighlight)
+		b.WriteString(ansi.Highlight)
 		b.WriteString(s[loc[0]:loc[1]])
-		b.WriteString(ansiReset)
+		b.WriteString(ansi.Reset)
 		last = loc[1]
 	}
 	b.WriteString(s[last:])
@@ -189,11 +179,7 @@ func truncateBody(s string) string {
 		}
 	}
 	joined := strings.Join(kept, " | ")
-	runes := []rune(joined)
-	if len(runes) > maxBodyLen {
-		joined = string(runes[:maxBodyLen-1]) + "…"
-	}
-	return joined
+	return session.Truncate(joined, maxBodyLen)
 }
 
 // previewLineCap bounds the number of bytes we'll read for a single JSONL
@@ -211,8 +197,12 @@ func loadMessages(path string) ([]messageItem, time.Time, int, error) {
 
 	r := bufio.NewReaderSize(f, 64*1024)
 
+	// render only displays the last maxMessages items, so we keep a ring
+	// buffer of that size rather than accumulating every message. startedAt
+	// (first message time) and total (overall count) are still derived from
+	// the full scan so the header stays accurate.
 	var (
-		items     []messageItem
+		ring      = make([]messageItem, maxMessages)
 		startedAt time.Time
 		total     int
 	)
@@ -223,17 +213,37 @@ func loadMessages(path string) ([]messageItem, time.Time, int, error) {
 				if startedAt.IsZero() && !ts.IsZero() {
 					startedAt = ts
 				}
-				items = append(items, item)
+				ring[total%maxMessages] = item
 				total++
 			}
 		}
 		if err == io.EOF {
-			return items, startedAt, total, nil
+			return collectRing(ring, total), startedAt, total, nil
 		}
 		if err != nil {
-			return items, startedAt, total, err
+			return collectRing(ring, total), startedAt, total, err
 		}
 	}
+}
+
+// collectRing returns the buffered messages in chronological (ascending)
+// order, at most maxMessages of them. total is the overall number of items
+// written into the ring; when it exceeds maxMessages the oldest entries have
+// been overwritten and the live window starts at total%maxMessages.
+func collectRing(ring []messageItem, total int) []messageItem {
+	n := min(total, maxMessages)
+	if n == 0 {
+		return nil
+	}
+	out := make([]messageItem, 0, n)
+	start := 0
+	if total > maxMessages {
+		start = total % maxMessages
+	}
+	for i := range n {
+		out = append(out, ring[(start+i)%maxMessages])
+	}
+	return out
 }
 
 // readJSONLLine returns one logical line from r. A line longer than max
@@ -278,11 +288,11 @@ func parseMessageLine(line string) (messageItem, time.Time, bool) {
 	if e.Message == nil {
 		return messageItem{}, time.Time{}, false
 	}
-	body := extractText(e.Message.Content)
+	body := session.ExtractText(e.Message.Content, "\n")
 	if body == "" {
 		return messageItem{}, time.Time{}, false
 	}
-	ts := parseTime(e.Timestamp)
+	ts := timefmt.Parse(e.Timestamp)
 	return messageItem{Role: e.Type, Timestamp: ts, Body: body}, ts, true
 }
 
@@ -295,44 +305,4 @@ func relativeOrFuture(t, now time.Time) string {
 		return "in the future"
 	}
 	return timefmt.Relative(t, now)
-}
-
-func parseTime(raw string) time.Time {
-	if raw == "" {
-		return time.Time{}
-	}
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
-		if t, err := time.Parse(layout, raw); err == nil {
-			return t
-		}
-	}
-	return time.Time{}
-}
-
-func extractText(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(raw, &blocks); err == nil {
-		var b strings.Builder
-		for _, block := range blocks {
-			if block.Type != "text" || block.Text == "" {
-				continue
-			}
-			if b.Len() > 0 {
-				b.WriteByte('\n')
-			}
-			b.WriteString(block.Text)
-		}
-		return b.String()
-	}
-	return ""
 }

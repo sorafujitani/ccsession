@@ -10,29 +10,30 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sorafujitani/ccsession/internal/ansi"
 	"github.com/sorafujitani/ccsession/internal/session"
 )
 
 func TestExtractText_String(t *testing.T) {
 	raw, _ := json.Marshal("hello")
-	if got := extractText(raw); got != "hello" {
+	if got := session.ExtractText(raw, "\n"); got != "hello" {
 		t.Errorf("got %q, want hello", got)
 	}
 }
 
 func TestExtractText_Blocks(t *testing.T) {
 	raw := json.RawMessage(`[{"type":"text","text":"foo"},{"type":"image"},{"type":"text","text":"bar"}]`)
-	got := extractText(raw)
+	got := session.ExtractText(raw, "\n")
 	if got != "foo\nbar" {
 		t.Errorf("got %q, want %q", got, "foo\nbar")
 	}
 }
 
 func TestExtractText_Empty(t *testing.T) {
-	if got := extractText(nil); got != "" {
+	if got := session.ExtractText(nil, "\n"); got != "" {
 		t.Errorf("got %q, want empty", got)
 	}
-	if got := extractText(json.RawMessage(``)); got != "" {
+	if got := session.ExtractText(json.RawMessage(``), "\n"); got != "" {
 		t.Errorf("got %q, want empty", got)
 	}
 }
@@ -261,7 +262,7 @@ func TestReadJSONLLine_SkipsOversizeLinesAndContinues(t *testing.T) {
 
 func TestHighlightMatches_BasicWrapsMatch(t *testing.T) {
 	got := highlightMatches("fix the login bug", Options{Query: "login"})
-	want := "fix the " + ansiHighlight + "login" + ansiReset + " bug"
+	want := "fix the " + ansi.Highlight + "login" + ansi.Reset + " bug"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -269,14 +270,14 @@ func TestHighlightMatches_BasicWrapsMatch(t *testing.T) {
 
 func TestHighlightMatches_CaseInsensitive(t *testing.T) {
 	got := highlightMatches("the Login flow", Options{Query: "login"})
-	if !strings.Contains(got, ansiHighlight+"Login"+ansiReset) {
+	if !strings.Contains(got, ansi.Highlight+"Login"+ansi.Reset) {
 		t.Errorf("expected original-case match highlighted, got %q", got)
 	}
 }
 
 func TestHighlightMatches_MultipleMatches(t *testing.T) {
 	got := highlightMatches("foo and foo", Options{Query: "foo"})
-	if strings.Count(got, ansiHighlight) != 2 {
+	if strings.Count(got, ansi.Highlight) != 2 {
 		t.Errorf("expected 2 highlights, got %q", got)
 	}
 }
@@ -299,14 +300,14 @@ func TestHighlightMatches_FixedStringTreatsMetacharsLiterally(t *testing.T) {
 		t.Errorf("metachar should be literal: got %q", got)
 	}
 	got := highlightMatches("a.b", Options{Query: "a.b"})
-	if !strings.Contains(got, ansiHighlight+"a.b"+ansiReset) {
+	if !strings.Contains(got, ansi.Highlight+"a.b"+ansi.Reset) {
 		t.Errorf("expected literal a.b highlighted, got %q", got)
 	}
 }
 
 func TestHighlightMatches_RegexMode(t *testing.T) {
 	got := highlightMatches("axb", Options{Query: "a.b", Regex: true})
-	if !strings.Contains(got, ansiHighlight+"axb"+ansiReset) {
+	if !strings.Contains(got, ansi.Highlight+"axb"+ansi.Reset) {
 		t.Errorf("expected regex match, got %q", got)
 	}
 }
@@ -335,7 +336,7 @@ func TestRender_HighlightsQueryInBody(t *testing.T) {
 	if err := render(s, &buf, Options{Query: "login"}); err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(buf.String(), ansiHighlight+"login"+ansiReset) {
+	if !strings.Contains(buf.String(), ansi.Highlight+"login"+ansi.Reset) {
 		t.Errorf("expected highlighted query in body, got %q", buf.String())
 	}
 }

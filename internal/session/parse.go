@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sorafujitani/ccsession/internal/timefmt"
 )
 
 // TailReadBytes is the upper bound on how many bytes we read from the end of a JSONL file.
@@ -85,13 +87,13 @@ func ParseSessionTail(path string, maxBytes int64) (*Session, error) {
 		case "user":
 			hasUser = true
 			if lastUserText == "" && e.Message != nil {
-				lastUserText = extractText(e.Message.Content)
+				lastUserText = ExtractText(e.Message.Content, " ")
 			}
-			if t := parseTimestamp(e.Timestamp); !t.IsZero() && t.After(lastTS) {
+			if t := timefmt.Parse(e.Timestamp); !t.IsZero() && t.After(lastTS) {
 				lastTS = t
 			}
 		case "assistant":
-			if t := parseTimestamp(e.Timestamp); !t.IsZero() && t.After(lastTS) {
+			if t := timefmt.Parse(e.Timestamp); !t.IsZero() && t.After(lastTS) {
 				lastTS = t
 			}
 		}
@@ -198,43 +200,6 @@ func readTail(path string, maxBytes int64) ([]byte, error) {
 	return buf, nil
 }
 
-func parseTimestamp(raw string) time.Time {
-	if raw == "" {
-		return time.Time{}
-	}
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
-		if t, err := time.Parse(layout, raw); err == nil {
-			return t
-		}
-	}
-	return time.Time{}
-}
-
-func extractText(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	var blocks []contentBlock
-	if err := json.Unmarshal(raw, &blocks); err == nil {
-		var b strings.Builder
-		for _, block := range blocks {
-			if block.Type != "text" || block.Text == "" {
-				continue
-			}
-			if b.Len() > 0 {
-				b.WriteByte(' ')
-			}
-			b.WriteString(block.Text)
-		}
-		return b.String()
-	}
-	return ""
-}
-
 func sanitizeLabel(s string) string {
 	// Replace every C0/C1-ish control char (ESC, BEL, DEL, …) with a space,
 	// not just CR/LF/TAB. Pasted ANSI color codes otherwise leak through
@@ -245,22 +210,8 @@ func sanitizeLabel(s string) string {
 		}
 		return r
 	}, s)
-	for strings.Contains(s, "  ") {
-		s = strings.ReplaceAll(s, "  ", " ")
-	}
-	s = strings.TrimSpace(s)
-	return truncate(s, LabelMaxLen)
-}
-
-func truncate(s string, n int) string {
-	if n <= 0 {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	return string(runes[:n-1]) + "…"
+	s = strings.Join(strings.Fields(s), " ")
+	return Truncate(s, LabelMaxLen)
 }
 
 func firstNonEmpty(values ...string) string {

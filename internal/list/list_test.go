@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sorafujitani/ccsession/internal/ansi"
 	"github.com/sorafujitani/ccsession/internal/session"
 )
 
@@ -51,10 +52,10 @@ func TestFormatLine_WithColor(t *testing.T) {
 		Label:       "x",
 	}
 	got := formatLine(s, now, true)
-	if !strings.Contains(got, ansiCyan) {
+	if !strings.Contains(got, ansi.Cyan) {
 		t.Errorf("expected cyan dirname colorization in %q", got)
 	}
-	if !strings.Contains(got, ansiDim) {
+	if !strings.Contains(got, ansi.Dim) {
 		t.Errorf("expected dim time in %q", got)
 	}
 }
@@ -74,12 +75,12 @@ func TestFormatLine_GoneMarker(t *testing.T) {
 	}
 
 	gotColor := formatLine(s, now, true)
-	if !strings.Contains(gotColor, ansiYellow) {
+	if !strings.Contains(gotColor, ansi.Yellow) {
 		t.Errorf("expected yellow marker color in %q", gotColor)
 	}
 	// B-9: cyan (the "healthy basename" color) must NOT appear on a gone row;
 	// the basename should be yellow too so it stands out at a glance.
-	if strings.Contains(gotColor, ansiCyan) {
+	if strings.Contains(gotColor, ansi.Cyan) {
 		t.Errorf("gone row should not use cyan basename: %q", gotColor)
 	}
 }
@@ -103,7 +104,7 @@ func TestFormatLine_CWDUnknownMarker(t *testing.T) {
 	}
 	// Yellow on color path to draw attention.
 	gotColor := formatLine(s, now, true)
-	if !strings.Contains(gotColor, ansiYellow) {
+	if !strings.Contains(gotColor, ansi.Yellow) {
 		t.Errorf("expected yellow on cwd-unknown row: %q", gotColor)
 	}
 }

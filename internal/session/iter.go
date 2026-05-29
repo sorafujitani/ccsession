@@ -40,7 +40,7 @@ func IterContent(path string, fn func(text string) bool) error {
 			if e.Message == nil {
 				continue
 			}
-			text := extractText(e.Message.Content)
+			text := ExtractText(e.Message.Content, " ")
 			if text == "" {
 				continue
 			}

@@ -8,16 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sorafujitani/ccsession/internal/ansi"
 	"github.com/sorafujitani/ccsession/internal/grep"
 	"github.com/sorafujitani/ccsession/internal/session"
 	"github.com/sorafujitani/ccsession/internal/timefmt"
-)
-
-const (
-	ansiReset  = "\x1b[0m"
-	ansiDim    = "\x1b[2m"
-	ansiCyan   = "\x1b[36m"
-	ansiYellow = "\x1b[33m"
 )
 
 // Options controls list output.
@@ -95,6 +89,9 @@ func isTerminal(f *os.File) bool {
 
 func filterOutByDir(sessions []*session.Session, needle string) []*session.Session {
 	lneedle := strings.ToLower(needle)
+	// Deliberately reuse the argument slice's backing array for the filtered
+	// result; safe because the caller (list.Run) immediately reassigns the
+	// return value over the slice it passed in.
 	out := sessions[:0]
 	for _, s := range sessions {
 		target := s.CWD
@@ -143,14 +140,14 @@ func formatLine(s *session.Session, now time.Time, color bool) string {
 		healthy = false
 	}
 	if color {
-		rel = ansiDim + padRight(rel, 9) + ansiReset
+		rel = ansi.Dim + padRight(rel, 9) + ansi.Reset
 		if healthy {
-			base = ansiCyan + base + ansiReset
+			base = ansi.Cyan + base + ansi.Reset
 		} else {
 			// Yellow on the basename so a glance picks it up even without
 			// reading the marker prefix (which used to be the only signal).
-			base = ansiYellow + base + ansiReset
-			marker = ansiYellow + marker + ansiReset
+			base = ansi.Yellow + base + ansi.Reset
+			marker = ansi.Yellow + marker + ansi.Reset
 		}
 	} else {
 		rel = padRight(rel, 9)

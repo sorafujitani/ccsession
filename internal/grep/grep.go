@@ -48,16 +48,13 @@ func Filter(query string, opts Options) (map[string]struct{}, error) {
 
 	set := make(map[string]struct{})
 	var mu sync.Mutex
-	concurrency := runtime.NumCPU() * 2
-	if concurrency < 4 {
-		concurrency = 4
-	}
+	concurrency := max(runtime.NumCPU()*2, 4)
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 	for _, p := range paths {
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(p string) {
+		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
 			var hit bool
@@ -73,7 +70,7 @@ func Filter(query string, opts Options) (map[string]struct{}, error) {
 				set[p] = struct{}{}
 				mu.Unlock()
 			}
-		}(p)
+		}()
 	}
 	wg.Wait()
 	return set, nil

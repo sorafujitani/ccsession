@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -53,6 +54,7 @@ func ScanFiltered(allow map[string]struct{}) ([]*Session, error) {
 	if allow == nil {
 		return scanPaths(paths), nil
 	}
+	// Intentional optimization: reuse paths' backing array in place to avoid a second allocation.
 	filtered := paths[:0]
 	for _, p := range paths {
 		if _, ok := allow[p]; ok {
@@ -67,7 +69,7 @@ func ScanFiltered(allow map[string]struct{}) ([]*Session, error) {
 func CollectJSONLPaths(base string) ([]string, error) {
 	projDirs, err := os.ReadDir(base)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
@@ -107,7 +109,7 @@ func scanPaths(paths []string) []*Session {
 	for i, p := range paths {
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(i int, p string) {
+		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
 			s, err := ParseSessionTail(p, TailReadBytes)
@@ -115,7 +117,7 @@ func scanPaths(paths []string) []*Session {
 				return
 			}
 			sessions[i] = s
-		}(i, p)
+		}()
 	}
 	wg.Wait()
 
@@ -158,7 +160,7 @@ func FindByID(id string) (*Session, error) {
 	}
 	projDirs, err := os.ReadDir(base)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil, ErrSessionFileMissing
 		}
 		return nil, err

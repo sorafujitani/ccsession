@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sorafujitani/ccsession/internal/timefmt"
 )
 
 func writeJSONL(t *testing.T, dir, name, body string) string {
@@ -437,9 +439,9 @@ func TestTruncate(t *testing.T) {
 		{"x", -1, "x"},
 	}
 	for _, c := range cases {
-		got := truncate(c.s, c.n)
+		got := Truncate(c.s, c.n)
 		if got != c.want {
-			t.Errorf("truncate(%q, %d) = %q, want %q", c.s, c.n, got, c.want)
+			t.Errorf("Truncate(%q, %d) = %q, want %q", c.s, c.n, got, c.want)
 		}
 	}
 }
@@ -480,18 +482,18 @@ func TestRestoreCWDFromDir(t *testing.T) {
 }
 
 func TestParseTimestamp(t *testing.T) {
-	if !parseTimestamp("").IsZero() {
+	if !timefmt.Parse("").IsZero() {
 		t.Error("empty should be zero")
 	}
-	if !parseTimestamp("not-a-time").IsZero() {
+	if !timefmt.Parse("not-a-time").IsZero() {
 		t.Error("garbage should be zero")
 	}
 	want := time.Date(2026, 5, 26, 11, 0, 0, 0, time.UTC)
-	if got := parseTimestamp("2026-05-26T11:00:00Z"); !got.Equal(want) {
+	if got := timefmt.Parse("2026-05-26T11:00:00Z"); !got.Equal(want) {
 		t.Errorf("RFC3339: got %v, want %v", got, want)
 	}
 	wantNano := time.Date(2026, 5, 26, 11, 0, 0, 123456789, time.UTC)
-	if got := parseTimestamp("2026-05-26T11:00:00.123456789Z"); !got.Equal(wantNano) {
+	if got := timefmt.Parse("2026-05-26T11:00:00.123456789Z"); !got.Equal(wantNano) {
 		t.Errorf("RFC3339Nano: got %v, want %v", got, wantNano)
 	}
 }
