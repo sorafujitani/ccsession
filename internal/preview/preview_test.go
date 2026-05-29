@@ -83,7 +83,7 @@ func TestRender_HeaderAndMessages(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := render(s, &buf); err != nil {
+	if err := render(s, &buf, Options{}); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	out := buf.String()
@@ -119,7 +119,7 @@ func TestRender_GoneCWDMarker(t *testing.T) {
 		LastTime:  time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC),
 	}
 	var buf bytes.Buffer
-	if err := render(s, &buf); err != nil {
+	if err := render(s, &buf, Options{}); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	if !strings.Contains(buf.String(), "[gone]") {
@@ -148,7 +148,7 @@ func TestRender_CapsMessagesToMaxMessages(t *testing.T) {
 		LastTime:  base.Add(time.Duration(len(lines)) * time.Minute),
 	}
 	var buf bytes.Buffer
-	if err := render(s, &buf); err != nil {
+	if err := render(s, &buf, Options{}); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	out := buf.String()
@@ -183,7 +183,7 @@ func TestRender_ZeroTimestampShowsDashes(t *testing.T) {
 		LastTime:  time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
 	}
 	var buf bytes.Buffer
-	if err := render(s, &buf); err != nil {
+	if err := render(s, &buf, Options{}); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	if !strings.Contains(buf.String(), "--:--") {
@@ -212,7 +212,7 @@ func TestRender_FutureSessionHeaderSaysFuture(t *testing.T) {
 		LastTime:  time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 	var buf bytes.Buffer
-	if err := render(s, &buf); err != nil {
+	if err := render(s, &buf, Options{}); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	if !strings.Contains(buf.String(), "in the future") {
@@ -256,6 +256,87 @@ func TestReadJSONLLine_SkipsOversizeLinesAndContinues(t *testing.T) {
 	}
 	if line != "last" {
 		t.Errorf("last = %q, want %q", line, "last")
+	}
+}
+
+func TestHighlightMatches_BasicWrapsMatch(t *testing.T) {
+	got := highlightMatches("fix the login bug", Options{Query: "login"})
+	want := "fix the " + ansiHighlight + "login" + ansiReset + " bug"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestHighlightMatches_CaseInsensitive(t *testing.T) {
+	got := highlightMatches("the Login flow", Options{Query: "login"})
+	if !strings.Contains(got, ansiHighlight+"Login"+ansiReset) {
+		t.Errorf("expected original-case match highlighted, got %q", got)
+	}
+}
+
+func TestHighlightMatches_MultipleMatches(t *testing.T) {
+	got := highlightMatches("foo and foo", Options{Query: "foo"})
+	if strings.Count(got, ansiHighlight) != 2 {
+		t.Errorf("expected 2 highlights, got %q", got)
+	}
+}
+
+func TestHighlightMatches_NoMatchOrEmptyReturnsInput(t *testing.T) {
+	if got := highlightMatches("hello", Options{Query: "zzz"}); got != "hello" {
+		t.Errorf("no match should return input, got %q", got)
+	}
+	if got := highlightMatches("hello", Options{Query: ""}); got != "hello" {
+		t.Errorf("empty query should return input, got %q", got)
+	}
+	if got := highlightMatches("hello", Options{Query: "   "}); got != "hello" {
+		t.Errorf("whitespace query should return input, got %q", got)
+	}
+}
+
+func TestHighlightMatches_FixedStringTreatsMetacharsLiterally(t *testing.T) {
+	// "a.b" must match the literal "a.b", not "axb".
+	if got := highlightMatches("axb", Options{Query: "a.b"}); got != "axb" {
+		t.Errorf("metachar should be literal: got %q", got)
+	}
+	got := highlightMatches("a.b", Options{Query: "a.b"})
+	if !strings.Contains(got, ansiHighlight+"a.b"+ansiReset) {
+		t.Errorf("expected literal a.b highlighted, got %q", got)
+	}
+}
+
+func TestHighlightMatches_RegexMode(t *testing.T) {
+	got := highlightMatches("axb", Options{Query: "a.b", Regex: true})
+	if !strings.Contains(got, ansiHighlight+"axb"+ansiReset) {
+		t.Errorf("expected regex match, got %q", got)
+	}
+}
+
+func TestHighlightMatches_InvalidRegexReturnsInput(t *testing.T) {
+	if got := highlightMatches("hello", Options{Query: "(", Regex: true}); got != "hello" {
+		t.Errorf("invalid regex should return input, got %q", got)
+	}
+}
+
+func TestRender_HighlightsQueryInBody(t *testing.T) {
+	tmp := t.TempDir()
+	body := `{"type":"user","timestamp":"2026-05-26T10:00:00Z","message":{"role":"user","content":"please fix the login flow"}}` + "\n"
+	jsonl := filepath.Join(tmp, "a.jsonl")
+	if err := os.WriteFile(jsonl, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &session.Session{
+		ID:        "abc",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		LastTime:  time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC),
+	}
+	var buf bytes.Buffer
+	if err := render(s, &buf, Options{Query: "login"}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(buf.String(), ansiHighlight+"login"+ansiReset) {
+		t.Errorf("expected highlighted query in body, got %q", buf.String())
 	}
 }
 
