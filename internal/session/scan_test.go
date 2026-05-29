@@ -12,7 +12,7 @@ import (
 func makeFakeHome(t *testing.T) (string, string) {
 	t.Helper()
 	home := t.TempDir()
-	projects := filepath.Join(home, "home", ".claude", "projects")
+	projects := filepath.Join(home, ".claude", "projects")
 	if err := os.MkdirAll(projects, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -45,15 +45,15 @@ func TestProjectsDir_UsesHomeEnv(t *testing.T) {
 }
 
 func TestProjectsDir_UsesConfigDirEnv(t *testing.T) {
-	base := filepath.Join(t.TempDir(), ".config")
-	projects := filepath.Join(base, "projects")
+	configDir := t.TempDir()
+	projects := filepath.Join(configDir, "projects")
 	if err := os.MkdirAll(projects, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	t.Setenv("CLAUDE_CONFIG_DIR", base)
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 
-	// Prefer $CLAUDE_CODE_DIR over $HOME
-	home, _ := makeFakeHome(t)
+	// Confirm $CLAUDE_CONFIG_DIR takes precedence over $HOME
+	home := t.TempDir()
 	t.Setenv("HOME", home)
 
 	got, err := ProjectsDir()
