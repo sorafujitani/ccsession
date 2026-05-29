@@ -2,6 +2,8 @@
 
 > An fzf-powered session picker for `claude --resume`.
 
+![ccsession demo](./docs/assets/ccsession_demo.gif)
+
 `ccsession` lists every Claude Code session under `~/.claude/projects`, lets
 you fuzzy-find across all of your projects with a live preview pane, and
 resumes the one you pick in its original working directory.
