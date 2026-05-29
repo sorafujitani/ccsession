@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,7 +22,17 @@ const (
 	ansiCyan   = "\x1b[36m"
 	ansiGreen  = "\x1b[32m"
 	ansiYellow = "\x1b[33m"
+	// ansiHighlight marks substrings matching the grep query (reverse video).
+	ansiHighlight = "\x1b[7m"
 )
+
+// Options controls preview rendering. Query, when non-empty, highlights its
+// matches in the message bodies; Regex treats Query as a regular expression
+// (mirroring grep.Options).
+type Options struct {
+	Query string
+	Regex bool
+}
 
 const (
 	maxMessages = 30
@@ -46,7 +57,7 @@ type messageItem struct {
 }
 
 // Run writes the preview pane content for a given session id to stdout.
-func Run(id string) error {
+func Run(id string, opts Options) error {
 	s, err := session.FindByID(id)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionFileMissing) {
@@ -60,10 +71,10 @@ func Run(id string) error {
 	if s == nil {
 		return fmt.Errorf("session not found: %s", id)
 	}
-	return render(s, os.Stdout)
+	return render(s, os.Stdout, opts)
 }
 
-func render(s *session.Session, out io.Writer) error {
+func render(s *session.Session, out io.Writer, opts Options) error {
 	messages, startedAt, totalMsgs, err := loadMessages(s.JSONLPath)
 	if err != nil {
 		return err
@@ -104,12 +115,12 @@ func render(s *session.Session, out io.Writer) error {
 		tail = tail[len(tail)-maxMessages:]
 	}
 	for _, m := range tail {
-		writeMessage(w, m)
+		writeMessage(w, m, opts)
 	}
 	return nil
 }
 
-func writeMessage(w io.Writer, m messageItem) {
+func writeMessage(w io.Writer, m messageItem, opts Options) {
 	role := m.Role
 	color := ansiGreen
 	if role == "assistant" {
@@ -122,8 +133,44 @@ func writeMessage(w io.Writer, m messageItem) {
 	if !m.Timestamp.IsZero() {
 		stamp = m.Timestamp.Local().Format("15:04")
 	}
-	body := truncateBody(m.Body)
+	body := highlightMatches(truncateBody(m.Body), opts)
 	fmt.Fprintf(w, "%s[%s %s]%s %s\n", color, role, stamp, ansiReset, body)
+}
+
+// highlightMatches wraps every case-insensitive match of opts.Query in s with
+// the highlight color. A fixed-string query is escaped so regex metacharacters
+// are treated literally; an invalid regex (in Regex mode) leaves s untouched.
+func highlightMatches(s string, opts Options) string {
+	if strings.TrimSpace(opts.Query) == "" {
+		return s
+	}
+	pattern := opts.Query
+	if !opts.Regex {
+		pattern = regexp.QuoteMeta(opts.Query)
+	}
+	re, err := regexp.Compile("(?i)" + pattern)
+	if err != nil {
+		return s
+	}
+	locs := re.FindAllStringIndex(s, -1)
+	if len(locs) == 0 {
+		return s
+	}
+	var b strings.Builder
+	last := 0
+	for _, loc := range locs {
+		if loc[0] == loc[1] {
+			// Skip zero-width matches (e.g. a query like "a*").
+			continue
+		}
+		b.WriteString(s[last:loc[0]])
+		b.WriteString(ansiHighlight)
+		b.WriteString(s[loc[0]:loc[1]])
+		b.WriteString(ansiReset)
+		last = loc[1]
+	}
+	b.WriteString(s[last:])
+	return b.String()
 }
 
 func truncateBody(s string) string {

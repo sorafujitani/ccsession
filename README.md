@@ -15,7 +15,8 @@ resumes the one you pick in its original working directory.
 - **Three search modes** — fuzzy (default), directory-only, and full-text
   grep over JSONL transcripts.
 - **Live preview** — last 30 messages of the highlighted session, with
-  timestamps and roles.
+  timestamps and roles. In grep mode the matched query is highlighted in the
+  preview so you can spot the hit at a glance.
 - **Faithful resume** — `chdir`s back to the session's original `cwd` before
   exec'ing `claude --resume`, so paths and tooling Just Work.
 - **Single static binary** — written in Go with only the standard library.
@@ -78,7 +79,7 @@ dependency; the `claude` CLI must be installed separately.
 ```sh
 ccsession                            # list -> fzf -> resume
 ccsession list  [--grep Q] [--regex] # emit TSV rows to stdout
-ccsession preview <id>               # render the preview pane
+ccsession preview [--query Q] [--regex] <id> # render the preview pane (Q highlighted)
 ccsession resume  <id>               # chdir to the session's cwd, exec `claude --resume`
 ccsession --version
 ccsession --help
@@ -88,7 +89,7 @@ ccsession --help
 
 | Key      | Mode |
 | -------- | --- |
-| `Ctrl-G` | grep — refilters by user/assistant content on every keystroke |
+| `Ctrl-G` | grep — refilters by user/assistant content on every keystroke; matches are highlighted in the preview |
 | `Ctrl-O` | dir — fuzzy match restricted to the directory column |
 | `Ctrl-F` | fuzzy — default; matches across time / dir / label |
 | `Enter`  | resume the selected session |
@@ -101,7 +102,9 @@ ccsession --help
    (`id`, `epoch`, relative time, cwd basename, label).
 2. `fzf` consumes the TSV. The three key bindings swap fzf's matcher
    between fuzzy mode, directory-only mode, and grep mode (which reloads
-   via `ccsession list --grep <query>` on every keystroke).
+   via `ccsession list --grep <query>` on every keystroke). The current
+   query is also forwarded to the preview as `ccsession preview --query
+   <query> <id>`, which highlights its matches in the rendered messages.
 3. On `Enter`, `ccsession resume <id>` resolves the session's original
    `cwd`, `chdir`s into it, and `execve`s `claude --resume <id>` so the
    resumed process fully replaces the picker.
