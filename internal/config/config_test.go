@@ -19,19 +19,19 @@ func TestResolvePrecedence(t *testing.T) {
 			want: Keybindings{Grep: "ctrl-g", Dir: "ctrl-o", Fuzzy: "ctrl-f"},
 		},
 		{
-			name: "env overrides default",
-			src:  Sources{Env: Keybindings{Fuzzy: "alt-f"}},
-			want: Keybindings{Grep: "ctrl-g", Dir: "ctrl-o", Fuzzy: "alt-f"},
-		},
-		{
-			name: "flag beats env",
-			src:  Sources{Flags: Keybindings{Grep: "alt-p"}, Env: Keybindings{Grep: "alt-g"}},
-			want: Keybindings{Grep: "alt-p", Dir: "ctrl-o", Fuzzy: "ctrl-f"},
-		},
-		{
-			name: "file beats flag and env",
-			src:  Sources{Flags: Keybindings{Grep: "alt-p"}, Env: Keybindings{Grep: "alt-g"}, File: file},
+			name: "file overrides default",
+			src:  Sources{File: file},
 			want: Keybindings{Grep: "ctrl-r", Dir: "ctrl-o", Fuzzy: "ctrl-f"},
+		},
+		{
+			name: "env beats file",
+			src:  Sources{Env: Keybindings{Grep: "alt-g"}, File: file},
+			want: Keybindings{Grep: "alt-g", Dir: "ctrl-o", Fuzzy: "ctrl-f"},
+		},
+		{
+			name: "flag beats env and file",
+			src:  Sources{Flags: Keybindings{Grep: "alt-p"}, Env: Keybindings{Grep: "alt-g"}, File: file},
+			want: Keybindings{Grep: "alt-p", Dir: "ctrl-o", Fuzzy: "ctrl-f"},
 		},
 		{
 			name: "per-field mix from different sources",

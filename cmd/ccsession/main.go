@@ -21,7 +21,8 @@ import (
 // flag is parsed; read by cmdList's flag default and by defaultScript.
 const excludeDirEnv = "CCSESSION_EXCLUDE_DIR"
 
-// Env vars that override the picker mode-switch keys (lowest precedence).
+// Env vars that override the picker mode-switch keys (below CLI flags, above
+// the config file).
 const (
 	bindGrepEnv  = "CCSESSION_BIND_GREP"
 	bindDirEnv   = "CCSESSION_BIND_DIR"
@@ -81,7 +82,7 @@ GLOBAL FLAGS:
   --bind-fuzzy <key>  key that switches the picker to fuzzy mode (default ctrl-f)
 
 PICKER KEYBINDINGS:
-  Resolved as config file > flag > env > default. The on-screen header is
+  Resolved as flag > env > config file > default. The on-screen header is
   regenerated from the resolved keys. Override via the flags above, the env
   vars CCSESSION_BIND_GREP / CCSESSION_BIND_DIR / CCSESSION_BIND_FUZZY, or
   ~/.config/ccsession/config.toml (XDG_CONFIG_HOME honored):
@@ -301,7 +302,7 @@ func runDefault(flagBinds config.Keybindings) error {
 	if err != nil {
 		return err
 	}
-	// Resolve the picker keys: config file > flag > env > default.
+	// Resolve the picker keys: flag > env > config file > default.
 	file, err := config.Load(config.DefaultPath())
 	if err != nil {
 		return err

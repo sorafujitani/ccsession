@@ -103,32 +103,30 @@ The three mode-switch keys are the defaults and can be overridden (see below).
 If a mode-switch key clashes with your terminal, shell, or muscle memory, you
 can remap any of the three. Keys are resolved in this order (first wins):
 
-**config file > CLI flags > environment variables > defaults**
+**CLI flags > environment variables > config file > defaults**
 
 The on-screen header is regenerated from the resolved keys, so the hint always
 matches what is active.
 
-Config file at `~/.config/ccsession/config.toml` (honors `XDG_CONFIG_HOME`).
-ccsession only **reads** this file — it never creates it, so create it
-yourself only if you want file-based overrides:
+```sh
+# CLI flags (highest precedence)
+ccsession --bind-grep ctrl-r --bind-fuzzy alt-f
+
+# environment variables
+export CCSESSION_BIND_GREP=ctrl-r
+export CCSESSION_BIND_DIR=ctrl-o
+export CCSESSION_BIND_FUZZY=alt-f
+```
+
+Config file at `~/.config/ccsession/config.toml` (lowest precedence before
+defaults; honors `XDG_CONFIG_HOME`). ccsession only **reads** this file — it
+never creates it, so create it yourself only if you want file-based overrides:
 
 ```toml
 [keybindings]
 grep  = "ctrl-r"
 dir   = "ctrl-o"
 fuzzy = "alt-f"
-```
-
-```sh
-# CLI flags
-ccsession --bind-grep ctrl-r --bind-fuzzy alt-f
-```
-
-```sh
-# environment variables (lowest precedence before defaults)
-export CCSESSION_BIND_GREP=ctrl-r
-export CCSESSION_BIND_DIR=ctrl-o
-export CCSESSION_BIND_FUZZY=alt-f
 ```
 
 Any key you leave unset falls through to the next source. A key name must be
