@@ -15,7 +15,7 @@ func TestBuildScriptDefaults(t *testing.T) {
 	got := buildScript(config.Defaults())
 
 	wants := []string{
-		`--header='[fuzzy] ctrl-g: grep / ctrl-o: dir / ctrl-f: fuzzy / enter: resume'`,
+		`--header='ctrl-g: grep / ctrl-o: dir / ctrl-f: fuzzy / enter: resume'`,
 		`--bind 'start:unbind(change)'`,
 		`--bind "change:reload(sleep 0.05;`,
 		`--bind "ctrl-g:transform:echo \"change-prompt(grep> )`,
@@ -38,7 +38,7 @@ func TestBuildScriptCustom(t *testing.T) {
 	got := buildScript(config.Keybindings{Grep: "ctrl-r", Dir: "alt-d", Fuzzy: "alt-f"})
 
 	wants := []string{
-		`--header='[fuzzy] ctrl-r: grep / alt-d: dir / alt-f: fuzzy / enter: resume'`,
+		`--header='ctrl-r: grep / alt-d: dir / alt-f: fuzzy / enter: resume'`,
 		`--bind "ctrl-r:transform:echo \"change-prompt(grep> )`,
 		`--bind "alt-d:transform:echo \"change-prompt(dir> )`,
 		`--bind "alt-f:transform:echo \"change-prompt(> )`,
