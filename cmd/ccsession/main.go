@@ -317,7 +317,7 @@ id=$("$CCSESSION_BIN" list --color=always "${exclude_args[@]+"${exclude_args[@]}
   --color='hl:-1:reverse,hl+:-1:reverse' \
   --preview "$CCSESSION_BIN preview --query {q} {1}" \
   --preview-window=right,60%,wrap \
-  --header='[fuzzy] ctrl-g: grep / ctrl-o: dir / ctrl-f: fuzzy / enter: resume' \
+  --header='ctrl-g: grep / ctrl-o: dir / ctrl-f: fuzzy / enter: resume' \
   --bind 'start:unbind(change)' \
   --bind "change:reload(sleep 0.05; $CCSESSION_BIN list --color=always $exclude_arg --grep {q})" \
   --bind "ctrl-g:transform:echo \"change-prompt(grep> )+disable-search+reload(sleep 0.05; $CCSESSION_BIN list --color=always $exclude_arg --grep {q})+rebind(change)\"" \
