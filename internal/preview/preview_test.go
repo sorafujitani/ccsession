@@ -260,6 +260,20 @@ func TestReadJSONLLine_SkipsOversizeLinesAndContinues(t *testing.T) {
 	}
 }
 
+func TestReadJSONLLine_KeepsLinesLargerThanReaderBuffer(t *testing.T) {
+	cap := 128
+	long := strings.Repeat("X", 96)
+	r := bufio.NewReaderSize(strings.NewReader(long+"\n"), 32)
+
+	line, err := readJSONLLine(r, cap)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if line != long {
+		t.Errorf("line length = %d, want %d", len(line), len(long))
+	}
+}
+
 func TestHighlightMatches_BasicWrapsMatch(t *testing.T) {
 	got := highlightMatches("fix the login bug", Options{Query: "login"})
 	want := "fix the " + ansi.Highlight + "login" + ansi.Reset + " bug"
