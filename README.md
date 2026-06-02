@@ -13,13 +13,14 @@ resumes the one you pick in its original working directory.
 - **Cross-project listing** — every session from every project in one view,
   sorted by last activity.
 - **Three search modes** — fuzzy (default), directory-only, and full-text
-  grep over JSONL transcripts.
+  grep over JSONL transcripts, with configurable mode-switch keys.
 - **Live preview** — last 30 messages of the highlighted session, with
   timestamps and roles. In grep mode the matched query is highlighted in the
   preview so you can spot the hit at a glance.
 - **Faithful resume** — `chdir`s back to the session's original `cwd` before
   exec'ing `claude --resume`, so paths and tooling Just Work.
-- **Single static binary** — written in Go with only the standard library.
+- **Single static binary** — written in Go; the only dependency is a small
+  TOML parser for the optional config file.
 
 ## Requirements
 
@@ -94,6 +95,44 @@ ccsession --help
 | `Ctrl-F` | fuzzy — default; matches across time / dir / label |
 | `Enter`  | resume the selected session |
 | `Esc`    | cancel |
+
+The three mode-switch keys are the defaults and can be overridden (see below).
+
+### Configuring the keybindings
+
+If a mode-switch key clashes with your terminal, shell, or muscle memory, you
+can remap any of the three. Keys are resolved in this order (first wins):
+
+**CLI flags > environment variables > config file > defaults**
+
+The on-screen header is regenerated from the resolved keys, so the hint always
+matches what is active.
+
+```sh
+# CLI flags (highest precedence)
+ccsession --bind-grep ctrl-r --bind-fuzzy alt-f
+
+# environment variables
+export CCSESSION_BIND_GREP=ctrl-r
+export CCSESSION_BIND_DIR=ctrl-o
+export CCSESSION_BIND_FUZZY=alt-f
+```
+
+Config file at `~/.config/ccsession/config.toml` (lowest precedence before
+defaults; honors `XDG_CONFIG_HOME`). ccsession only **reads** this file — it
+never creates it, so create it yourself only if you want file-based overrides:
+
+```toml
+[keybindings]
+grep  = "ctrl-r"
+dir   = "ctrl-o"
+fuzzy = "alt-f"
+```
+
+Any key you leave unset falls through to the next source. A key name must be
+lower-case fzf syntax (`ctrl-r`, `alt-f`, `f1`, …); the three keys must be
+distinct and must not be a reserved fzf event name (`enter`, `change`, …), or
+ccsession exits with an error instead of starting the picker.
 
 ## How it works
 
