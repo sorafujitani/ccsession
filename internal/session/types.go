@@ -34,12 +34,12 @@ type Session struct {
 
 // entry is the union shape of every JSONL line in a Claude transcript.
 type entry struct {
-	Type       string          `json:"type"`
-	AITitle    string          `json:"aiTitle"`
-	LastPrompt string          `json:"lastPrompt"`
-	Timestamp  string          `json:"timestamp"`
-	CWD        string          `json:"cwd"`
-	Message    *entryMessage   `json:"message"`
+	Type       string        `json:"type"`
+	AITitle    string        `json:"aiTitle"`
+	LastPrompt string        `json:"lastPrompt"`
+	Timestamp  string        `json:"timestamp"`
+	CWD        string        `json:"cwd"`
+	Message    *entryMessage `json:"message"`
 }
 
 type entryMessage struct {

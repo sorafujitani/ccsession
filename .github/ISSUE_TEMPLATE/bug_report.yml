@@ -1,0 +1,54 @@
+name: Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please fill in the sections below so we can
+        reproduce the problem quickly.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands you ran and what you saw.
+      placeholder: |
+        1. Run `ccsession ...`
+        2. Press `Ctrl-G`
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ccsession version
+      description: Output of `ccsession --version`.
+      placeholder: "e.g. 0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS / architecture, `fzf --version`, and how you installed ccsession (go install, release binary, Nix, Homebrew).
+      placeholder: |
+        - OS: macOS 14.5 (arm64)
+        - fzf: 0.54.0
+        - install: Homebrew
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Any error messages or terminal output. This will be rendered as code, so no backticks needed.
+      render: shell
+    validations:
+      required: false
