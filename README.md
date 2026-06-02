@@ -111,11 +111,6 @@ matches what is active.
 ```sh
 # CLI flags (highest precedence)
 ccsession --bind-grep ctrl-r --bind-fuzzy alt-f
-
-# environment variables
-export CCSESSION_BIND_GREP=ctrl-r
-export CCSESSION_BIND_DIR=ctrl-o
-export CCSESSION_BIND_FUZZY=alt-f
 ```
 
 Config file at `~/.config/ccsession/config.toml` (honors `XDG_CONFIG_HOME`).
@@ -127,6 +122,13 @@ yourself only if you want file-based overrides:
 grep  = "ctrl-r"
 dir   = "ctrl-o"
 fuzzy = "alt-f"
+```
+
+```sh
+# environment variables (lowest precedence before defaults)
+export CCSESSION_BIND_GREP=ctrl-r
+export CCSESSION_BIND_DIR=ctrl-o
+export CCSESSION_BIND_FUZZY=alt-f
 ```
 
 Any key you leave unset falls through to the next source. A key name must be
