@@ -1,5 +1,5 @@
 // Package config resolves the fzf picker's mode-switch keybindings from
-// (in precedence order) CLI flags, a TOML config file, environment variables,
+// (in precedence order) a TOML config file, CLI flags, environment variables,
 // and built-in defaults.
 package config
 
@@ -35,7 +35,7 @@ type Sources struct {
 	File  *Keybindings
 }
 
-// Resolve picks each key from the first non-empty source (flag > file > env >
+// Resolve picks each key from the first non-empty source (file > flag > env >
 // default) and validates the result. It touches no OS state.
 func Resolve(s Sources) (Keybindings, error) {
 	var file Keybindings
@@ -44,9 +44,9 @@ func Resolve(s Sources) (Keybindings, error) {
 	}
 	def := Defaults()
 	kb := Keybindings{
-		Grep:  pick(s.Flags.Grep, file.Grep, s.Env.Grep, def.Grep),
-		Dir:   pick(s.Flags.Dir, file.Dir, s.Env.Dir, def.Dir),
-		Fuzzy: pick(s.Flags.Fuzzy, file.Fuzzy, s.Env.Fuzzy, def.Fuzzy),
+		Grep:  pick(file.Grep, s.Flags.Grep, s.Env.Grep, def.Grep),
+		Dir:   pick(file.Dir, s.Flags.Dir, s.Env.Dir, def.Dir),
+		Fuzzy: pick(file.Fuzzy, s.Flags.Fuzzy, s.Env.Fuzzy, def.Fuzzy),
 	}
 	if err := Validate(kb); err != nil {
 		return Keybindings{}, err

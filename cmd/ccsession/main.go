@@ -81,7 +81,7 @@ GLOBAL FLAGS:
   --bind-fuzzy <key>  key that switches the picker to fuzzy mode (default ctrl-f)
 
 PICKER KEYBINDINGS:
-  Resolved as flag > config file > env > default. The on-screen header is
+  Resolved as config file > flag > env > default. The on-screen header is
   regenerated from the resolved keys. Override via the flags above, the env
   vars CCSESSION_BIND_GREP / CCSESSION_BIND_DIR / CCSESSION_BIND_FUZZY, or
   ~/.config/ccsession/config.toml (XDG_CONFIG_HOME honored):
@@ -301,7 +301,7 @@ func runDefault(flagBinds config.Keybindings) error {
 	if err != nil {
 		return err
 	}
-	// Resolve the picker keys: flag > config file > env > default.
+	// Resolve the picker keys: config file > flag > env > default.
 	file, err := config.Load(config.DefaultPath())
 	if err != nil {
 		return err

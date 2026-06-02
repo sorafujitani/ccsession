@@ -103,7 +103,7 @@ The three mode-switch keys are the defaults and can be overridden (see below).
 If a mode-switch key clashes with your terminal, shell, or muscle memory, you
 can remap any of the three. Keys are resolved in this order (first wins):
 
-**CLI flags > config file > environment variables > defaults**
+**config file > CLI flags > environment variables > defaults**
 
 The on-screen header is regenerated from the resolved keys, so the hint always
 matches what is active.
@@ -120,7 +120,7 @@ fuzzy = "alt-f"
 ```
 
 ```sh
-# CLI flags (highest precedence)
+# CLI flags
 ccsession --bind-grep ctrl-r --bind-fuzzy alt-f
 ```
 
