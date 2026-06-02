@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/sorafujitani/ccsession/blob/main/CONTRIBUTING.md
+    about: How to set up the toolchain, run the tests, and open a pull request.
