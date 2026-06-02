@@ -108,11 +108,6 @@ can remap any of the three. Keys are resolved in this order (first wins):
 The on-screen header is regenerated from the resolved keys, so the hint always
 matches what is active.
 
-```sh
-# CLI flags (highest precedence)
-ccsession --bind-grep ctrl-r --bind-fuzzy alt-f
-```
-
 Config file at `~/.config/ccsession/config.toml` (honors `XDG_CONFIG_HOME`).
 ccsession only **reads** this file — it never creates it, so create it
 yourself only if you want file-based overrides:
@@ -122,6 +117,11 @@ yourself only if you want file-based overrides:
 grep  = "ctrl-r"
 dir   = "ctrl-o"
 fuzzy = "alt-f"
+```
+
+```sh
+# CLI flags (highest precedence)
+ccsession --bind-grep ctrl-r --bind-fuzzy alt-f
 ```
 
 ```sh
