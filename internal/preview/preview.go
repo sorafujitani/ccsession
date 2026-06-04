@@ -267,7 +267,6 @@ func readJSONLLine(r *bufio.Reader, max int) (string, error) {
 		}
 		if err == bufio.ErrBufferFull {
 			// More of the same line remains in the reader.
-			truncated = true
 			continue
 		}
 		if truncated {
