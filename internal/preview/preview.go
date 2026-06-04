@@ -13,6 +13,7 @@ import (
 
 	"github.com/sorafujitani/ccsession/internal/ansi"
 	"github.com/sorafujitani/ccsession/internal/session"
+	"github.com/sorafujitani/ccsession/internal/termcolor"
 	"github.com/sorafujitani/ccsession/internal/timefmt"
 )
 
@@ -20,8 +21,11 @@ import (
 // matches in the message bodies; Regex treats Query as a regular expression
 // (mirroring grep.Options).
 type Options struct {
-	Query string
-	Regex bool
+	Query   string
+	Regex   bool
+	NoColor bool
+	// Color overrides auto-detection: "always", "never", or ""/"auto".
+	Color string
 }
 
 const (
@@ -76,41 +80,46 @@ func render(s *session.Session, out io.Writer, opts Options) error {
 	now := time.Now()
 	w := bufio.NewWriter(out)
 	defer w.Flush()
+	color := termcolor.Enabled(out, opts.Color, opts.NoColor)
 
-	fmt.Fprintf(w, "%ssession%s : %s\n", ansi.Bold, ansi.Reset, s.ID)
+	bold := colorCode(color, ansi.Bold)
+	dim := colorCode(color, ansi.Dim)
+	reset := colorCode(color, ansi.Reset)
+
+	fmt.Fprintf(w, "%ssession%s : %s\n", bold, reset, s.ID)
 	cwd := s.CWD
 	if cwd == "" {
 		cwd = "(unknown)"
 	}
 	if !s.CWDExists {
-		cwd = ansi.Yellow + cwd + " [gone]" + ansi.Reset
+		cwd = colorize(color, ansi.Yellow, cwd+" [gone]")
 	} else {
-		cwd = ansi.Cyan + cwd + ansi.Reset
+		cwd = colorize(color, ansi.Cyan, cwd)
 	}
-	fmt.Fprintf(w, "%sproject%s : %s\n", ansi.Bold, ansi.Reset, cwd)
+	fmt.Fprintf(w, "%sproject%s : %s\n", bold, reset, cwd)
 	fmt.Fprintf(w, "%sstarted%s : %s  %s(%s)%s\n",
-		ansi.Bold, ansi.Reset,
+		bold, reset,
 		startedAt.Local().Format("2006-01-02 15:04"),
-		ansi.Dim, relativeOrFuture(startedAt, now), ansi.Reset,
+		dim, relativeOrFuture(startedAt, now), reset,
 	)
 	fmt.Fprintf(w, "%slast%s    : %s  %s(%d msgs)%s\n",
-		ansi.Bold, ansi.Reset,
+		bold, reset,
 		s.LastTime.Local().Format("2006-01-02 15:04"),
-		ansi.Dim, totalMsgs, ansi.Reset,
+		dim, totalMsgs, reset,
 	)
-	fmt.Fprintln(w, ansi.Dim+strings.Repeat("─", 60)+ansi.Reset)
+	fmt.Fprintln(w, colorize(color, ansi.Dim, strings.Repeat("─", 60)))
 
 	tail := messages
 	if len(tail) > maxMessages {
 		tail = tail[len(tail)-maxMessages:]
 	}
 	for _, m := range tail {
-		writeMessage(w, m, opts)
+		writeMessage(w, m, opts, color)
 	}
 	return nil
 }
 
-func writeMessage(w io.Writer, m messageItem, opts Options) {
+func writeMessage(w io.Writer, m messageItem, opts Options, colorEnabled bool) {
 	role := m.Role
 	color := ansi.Green
 	if role == "assistant" {
@@ -123,14 +132,23 @@ func writeMessage(w io.Writer, m messageItem, opts Options) {
 	if !m.Timestamp.IsZero() {
 		stamp = m.Timestamp.Local().Format("15:04")
 	}
-	body := highlightMatches(truncateBody(m.Body), opts)
-	fmt.Fprintf(w, "%s[%s %s]%s %s\n", color, role, stamp, ansi.Reset, body)
+	body := highlightMatches(truncateBody(m.Body), opts, colorEnabled)
+	fmt.Fprintf(w, "%s[%s %s]%s %s\n",
+		colorCode(colorEnabled, color),
+		role,
+		stamp,
+		colorCode(colorEnabled, ansi.Reset),
+		body,
+	)
 }
 
 // highlightMatches wraps every case-insensitive match of opts.Query in s with
 // the highlight color. A fixed-string query is escaped so regex metacharacters
 // are treated literally; an invalid regex (in Regex mode) leaves s untouched.
-func highlightMatches(s string, opts Options) string {
+func highlightMatches(s string, opts Options, color bool) string {
+	if !color {
+		return s
+	}
 	if strings.TrimSpace(opts.Query) == "" {
 		return s
 	}
@@ -161,6 +179,20 @@ func highlightMatches(s string, opts Options) string {
 	}
 	b.WriteString(s[last:])
 	return b.String()
+}
+
+func colorCode(enabled bool, code string) string {
+	if !enabled {
+		return ""
+	}
+	return code
+}
+
+func colorize(enabled bool, code, s string) string {
+	if !enabled {
+		return s
+	}
+	return code + s + ansi.Reset
 }
 
 func truncateBody(s string) string {

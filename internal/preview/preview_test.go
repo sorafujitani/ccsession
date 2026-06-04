@@ -105,6 +105,58 @@ func TestRender_HeaderAndMessages(t *testing.T) {
 	}
 }
 
+func TestRender_AutoColorDisablesANSIForNonTTY(t *testing.T) {
+	tmp := t.TempDir()
+	body := `{"type":"user","timestamp":"2026-05-26T10:00:00Z","message":{"role":"user","content":"please fix login"}}` + "\n"
+	jsonl := filepath.Join(tmp, "a.jsonl")
+	if err := os.WriteFile(jsonl, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &session.Session{
+		ID:        "abc",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		LastTime:  time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC),
+	}
+	var buf bytes.Buffer
+	if err := render(s, &buf, Options{Query: "login"}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if strings.Contains(buf.String(), "\x1b[") {
+		t.Errorf("non-TTY auto output should not contain ANSI, got %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "please fix login") {
+		t.Errorf("expected plain body text, got %q", buf.String())
+	}
+}
+
+func TestRender_ColorAlwaysEmitsANSIForNonTTY(t *testing.T) {
+	tmp := t.TempDir()
+	body := `{"type":"assistant","timestamp":"2026-05-26T10:00:00Z","message":{"role":"assistant","content":"please fix login"}}` + "\n"
+	jsonl := filepath.Join(tmp, "a.jsonl")
+	if err := os.WriteFile(jsonl, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &session.Session{
+		ID:        "abc",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		LastTime:  time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC),
+	}
+	var buf bytes.Buffer
+	if err := render(s, &buf, Options{Query: "login", Color: "always"}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{ansi.Bold, ansi.Cyan, ansi.Highlight + "login" + ansi.Reset} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected colored output to contain %q, got %q", want, out)
+		}
+	}
+}
+
 func TestRender_GoneCWDMarker(t *testing.T) {
 	tmp := t.TempDir()
 	body := `{"type":"user","timestamp":"2026-05-26T10:00:00Z","message":{"role":"user","content":"x"}}` + "\n"
@@ -275,7 +327,7 @@ func TestReadJSONLLine_KeepsLinesLargerThanReaderBuffer(t *testing.T) {
 }
 
 func TestHighlightMatches_BasicWrapsMatch(t *testing.T) {
-	got := highlightMatches("fix the login bug", Options{Query: "login"})
+	got := highlightMatches("fix the login bug", Options{Query: "login"}, true)
 	want := "fix the " + ansi.Highlight + "login" + ansi.Reset + " bug"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -283,51 +335,57 @@ func TestHighlightMatches_BasicWrapsMatch(t *testing.T) {
 }
 
 func TestHighlightMatches_CaseInsensitive(t *testing.T) {
-	got := highlightMatches("the Login flow", Options{Query: "login"})
+	got := highlightMatches("the Login flow", Options{Query: "login"}, true)
 	if !strings.Contains(got, ansi.Highlight+"Login"+ansi.Reset) {
 		t.Errorf("expected original-case match highlighted, got %q", got)
 	}
 }
 
 func TestHighlightMatches_MultipleMatches(t *testing.T) {
-	got := highlightMatches("foo and foo", Options{Query: "foo"})
+	got := highlightMatches("foo and foo", Options{Query: "foo"}, true)
 	if strings.Count(got, ansi.Highlight) != 2 {
 		t.Errorf("expected 2 highlights, got %q", got)
 	}
 }
 
 func TestHighlightMatches_NoMatchOrEmptyReturnsInput(t *testing.T) {
-	if got := highlightMatches("hello", Options{Query: "zzz"}); got != "hello" {
+	if got := highlightMatches("hello", Options{Query: "zzz"}, true); got != "hello" {
 		t.Errorf("no match should return input, got %q", got)
 	}
-	if got := highlightMatches("hello", Options{Query: ""}); got != "hello" {
+	if got := highlightMatches("hello", Options{Query: ""}, true); got != "hello" {
 		t.Errorf("empty query should return input, got %q", got)
 	}
-	if got := highlightMatches("hello", Options{Query: "   "}); got != "hello" {
+	if got := highlightMatches("hello", Options{Query: "   "}, true); got != "hello" {
 		t.Errorf("whitespace query should return input, got %q", got)
+	}
+}
+
+func TestHighlightMatches_NoColorReturnsInput(t *testing.T) {
+	if got := highlightMatches("hello login", Options{Query: "login"}, false); got != "hello login" {
+		t.Errorf("no-color highlight should return input, got %q", got)
 	}
 }
 
 func TestHighlightMatches_FixedStringTreatsMetacharsLiterally(t *testing.T) {
 	// "a.b" must match the literal "a.b", not "axb".
-	if got := highlightMatches("axb", Options{Query: "a.b"}); got != "axb" {
+	if got := highlightMatches("axb", Options{Query: "a.b"}, true); got != "axb" {
 		t.Errorf("metachar should be literal: got %q", got)
 	}
-	got := highlightMatches("a.b", Options{Query: "a.b"})
+	got := highlightMatches("a.b", Options{Query: "a.b"}, true)
 	if !strings.Contains(got, ansi.Highlight+"a.b"+ansi.Reset) {
 		t.Errorf("expected literal a.b highlighted, got %q", got)
 	}
 }
 
 func TestHighlightMatches_RegexMode(t *testing.T) {
-	got := highlightMatches("axb", Options{Query: "a.b", Regex: true})
+	got := highlightMatches("axb", Options{Query: "a.b", Regex: true}, true)
 	if !strings.Contains(got, ansi.Highlight+"axb"+ansi.Reset) {
 		t.Errorf("expected regex match, got %q", got)
 	}
 }
 
 func TestHighlightMatches_InvalidRegexReturnsInput(t *testing.T) {
-	if got := highlightMatches("hello", Options{Query: "(", Regex: true}); got != "hello" {
+	if got := highlightMatches("hello", Options{Query: "(", Regex: true}, true); got != "hello" {
 		t.Errorf("invalid regex should return input, got %q", got)
 	}
 }
@@ -347,7 +405,7 @@ func TestRender_HighlightsQueryInBody(t *testing.T) {
 		LastTime:  time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC),
 	}
 	var buf bytes.Buffer
-	if err := render(s, &buf, Options{Query: "login"}); err != nil {
+	if err := render(s, &buf, Options{Query: "login", Color: "always"}); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	if !strings.Contains(buf.String(), ansi.Highlight+"login"+ansi.Reset) {

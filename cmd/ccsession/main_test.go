@@ -18,6 +18,7 @@ func TestBuildScriptDefaults(t *testing.T) {
 		`--header='ctrl-g: grep / ctrl-o: dir / ctrl-f: fuzzy / enter: resume'`,
 		`--bind 'start:unbind(change)'`,
 		`--bind "change:reload(sleep 0.05;`,
+		`--preview "$CCSESSION_BIN preview --color=always --query {q} {1}"`,
 		`--bind "ctrl-g:transform:echo \"change-prompt(grep> )`,
 		`--bind "ctrl-o:transform:echo \"change-prompt(dir> )`,
 		`--bind "ctrl-f:transform:echo \"change-prompt(> )`,

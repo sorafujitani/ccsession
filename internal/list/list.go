@@ -11,6 +11,7 @@ import (
 	"github.com/sorafujitani/ccsession/internal/ansi"
 	"github.com/sorafujitani/ccsession/internal/grep"
 	"github.com/sorafujitani/ccsession/internal/session"
+	"github.com/sorafujitani/ccsession/internal/termcolor"
 	"github.com/sorafujitani/ccsession/internal/timefmt"
 )
 
@@ -61,30 +62,7 @@ func Run(opts Options) error {
 // longer leaks ANSI codes, while the fzf integration (which explicitly
 // passes --color=always) keeps its styling.
 func colorEnabled(opts Options) bool {
-	switch strings.ToLower(opts.Color) {
-	case "always":
-		return true
-	case "never":
-		return false
-	}
-	if opts.NoColor {
-		return false
-	}
-	if os.Getenv("NO_COLOR") != "" {
-		return false
-	}
-	if f, ok := opts.Out.(*os.File); ok {
-		return isTerminal(f)
-	}
-	return false
-}
-
-func isTerminal(f *os.File) bool {
-	fi, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
+	return termcolor.Enabled(opts.Out, opts.Color, opts.NoColor)
 }
 
 func filterOutByDir(sessions []*session.Session, needle string) []*session.Session {

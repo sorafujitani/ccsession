@@ -119,11 +119,14 @@ FLAGS:
 const previewUsage = `ccsession preview - render the preview pane for a session id
 
 USAGE:
-  ccsession preview [--query <query>] [--regex] <sessionId>
+  ccsession preview [--query <query>] [--regex] [--color <mode>] [--no-color] <sessionId>
 
 FLAGS:
   --query <query>     highlight matches of <query> in the preview (fixed-string)
   --regex             treat --query as a regular expression
+  --color <mode>      color output: auto (default) | always | never
+                      "auto" emits ANSI only when stdout is a terminal
+  --no-color          shorthand for --color=never
 `
 
 const resumeUsage = `ccsession resume - chdir to the session's cwd and exec "claude --resume"
@@ -262,6 +265,8 @@ func cmdPreview(args []string) {
 	fs := newFlagSet("preview", previewUsage)
 	queryFlag := fs.String("query", "", "highlight matches of <query> in the preview")
 	regexFlag := fs.Bool("regex", false, "treat --query as a regular expression")
+	colorFlag := fs.String("color", "auto", "color output: auto|always|never")
+	noColor := fs.Bool("no-color", false, "shorthand for --color=never")
 	if err := fs.Parse(args); err != nil {
 		handleFlagError("preview", fs, err)
 	}
@@ -271,7 +276,12 @@ func cmdPreview(args []string) {
 		fs.Usage()
 		os.Exit(2)
 	}
-	if err := preview.Run(rest[0], preview.Options{Query: *queryFlag, Regex: *regexFlag}); err != nil {
+	if err := preview.Run(rest[0], preview.Options{
+		Query:   *queryFlag,
+		Regex:   *regexFlag,
+		Color:   *colorFlag,
+		NoColor: *noColor,
+	}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession preview:", err)
 		os.Exit(1)
 	}
@@ -377,7 +387,7 @@ id=$("$CCSESSION_BIN" list --color=always "${exclude_args[@]+"${exclude_args[@]}
   --no-sort \
   --no-hscroll \
   --color='hl:-1:reverse,hl+:-1:reverse' \
-  --preview "$CCSESSION_BIN preview --query {q} {1}" \
+  --preview "$CCSESSION_BIN preview --color=always --query {q} {1}" \
   --preview-window=right,60%,wrap \
   --header='__CCS_BIND_GREP__: grep / __CCS_BIND_DIR__: dir / __CCS_BIND_FUZZY__: fuzzy / enter: resume' \
   --bind 'start:unbind(change)' \
