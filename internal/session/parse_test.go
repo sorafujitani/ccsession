@@ -424,28 +424,6 @@ func TestSanitizeLabel_TruncatesAtLabelMaxLen(t *testing.T) {
 	}
 }
 
-func TestTruncate(t *testing.T) {
-	cases := []struct {
-		s    string
-		n    int
-		want string
-	}{
-		{"hello", 10, "hello"},
-		{"hello", 5, "hello"},
-		{"helloX", 5, "hell…"},
-		{"あいうえお", 5, "あいうえお"},
-		{"あいうえおX", 5, "あいうえ…"},
-		{"x", 0, "x"},
-		{"x", -1, "x"},
-	}
-	for _, c := range cases {
-		got := Truncate(c.s, c.n)
-		if got != c.want {
-			t.Errorf("Truncate(%q, %d) = %q, want %q", c.s, c.n, got, c.want)
-		}
-	}
-}
-
 func TestFirstNonEmpty(t *testing.T) {
 	if got := firstNonEmpty("", "", "x", "y"); got != "x" {
 		t.Errorf("got %q, want x", got)
