@@ -26,8 +26,13 @@ resumes the one you pick in its original working directory.
 
 | Tool | Required for |
 | --- | --- |
-| [`fzf`](https://github.com/junegunn/fzf) | interactive picker |
+| [`fzf`](https://github.com/junegunn/fzf) `>= 0.58.0` | interactive picker |
 | `claude` ([Claude Code CLI](https://docs.claude.com/en/docs/claude-code)) | resuming sessions |
+
+`ccsession` depends on newer `fzf` actions such as `transform`, `rebind`,
+`unbind`, `disable-search`, and `change-nth`. The newest of those,
+`change-nth`, landed in `fzf 0.58.0`, so older versions may start but the mode
+switch bindings will not work correctly.
 
 ## Install
 
