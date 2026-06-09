@@ -2,6 +2,8 @@
 
 > An fzf-powered session picker for `claude --resume`.
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors)](https://github.com/sponsors/sorafujitani)
+
 ![ccsession demo](./docs/assets/ccsession_demo.gif)
 
 `ccsession` lists every Claude Code session under `~/.claude/projects`, lets
