@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+env:
+  GO_VERSION: stable
+  GORELEASER_VERSION: "~> v2.15.0"
+
 jobs:
   goreleaser:
     name: goreleaser
@@ -19,14 +23,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
+          go-version: ${{ env.GO_VERSION }}
 
       - uses: goreleaser/goreleaser-action@v6
         with:
-          # Pin to the 2.15.x line: `brews` (Homebrew Formula) was removed in
-          # v2.16 in favor of `homebrew_casks`. Staying on 2.15.x keeps the
-          # current formula-based tap working until we migrate to casks.
-          version: "~> v2.15.0"
+          version: ${{ env.GORELEASER_VERSION }}
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
