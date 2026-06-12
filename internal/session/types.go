@@ -30,6 +30,9 @@ type Session struct {
 	// directory-name fallback could not be reconciled with the filesystem.
 	// Callers (resume) refuse to act on these sessions.
 	CWDUnknown bool
+	// Source is the backend that produced this session ("claude"), stamped by
+	// the source package; the session package itself leaves it empty.
+	Source string
 }
 
 // entry is the union shape of every JSONL line in a Claude transcript.

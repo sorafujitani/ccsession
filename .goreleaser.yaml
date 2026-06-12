@@ -5,6 +5,9 @@ project_name: ccsession
 before:
   hooks:
     - go mod tidy
+    # goreleaser builds with -mod=vendor when vendor/ exists; keep it in sync
+    # so a vendored dependency can't fail the release with "inconsistent vendoring".
+    - go mod vendor
 
 builds:
   - id: ccsession
