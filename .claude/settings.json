@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "編集されたファイルが .go ファイルの場合のみ検証する（それ以外は即座にOKを返す）。hook入力: $ARGUMENTS\n\n検証手順: リポジトリルート（go.modのある場所）で `go build ./...` を実行し、ビルドが通るか確認する。失敗した場合はコンパイルエラーの内容を報告してブロックする。",
+            "timeout": 90,
+            "statusMessage": "go build を検証中..."
+          }
+        ]
+      }
+    ]
+  }
+}
