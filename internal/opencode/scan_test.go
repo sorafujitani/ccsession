@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ func TestScan_OrdersByUpdatedDescThenID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := ids(ss), []string{"ses_a", "ses_b", "ses_c"}; !equal(got, want) {
+	if got, want := ids(ss), []string{"ses_a", "ses_b", "ses_c"}; !slices.Equal(got, want) {
 		t.Errorf("order = %v, want %v", got, want)
 	}
 }
@@ -38,7 +39,7 @@ func TestScan_TiebreakByIDAscending(t *testing.T) {
 	f.session("ses_a", "/p", "a", 500)
 
 	ss, _ := f.open().scanFiltered(nil, time.UnixMilli(1_000_000))
-	if got, want := ids(ss), []string{"ses_a", "ses_z"}; !equal(got, want) {
+	if got, want := ids(ss), []string{"ses_a", "ses_z"}; !slices.Equal(got, want) {
 		t.Errorf("tiebreak order = %v, want %v", got, want)
 	}
 }
@@ -50,7 +51,7 @@ func TestScan_ExcludesChildAndArchived(t *testing.T) {
 	f.archivedSession("ses_arch", "/p", "arch", 300)
 
 	ss, _ := f.open().scanFiltered(nil, time.UnixMilli(1_000_000))
-	if got, want := ids(ss), []string{"ses_root"}; !equal(got, want) {
+	if got, want := ids(ss), []string{"ses_root"}; !slices.Equal(got, want) {
 		t.Errorf("got %v, want only the root session", got)
 	}
 }
@@ -74,7 +75,7 @@ func TestScan_ControlCharIDDroppedButTitleSanitized(t *testing.T) {
 	f.session("ses_clean", "/p", "line1\nline2", 200)
 
 	ss, _ := f.open().scanFiltered(nil, time.UnixMilli(1_000_000))
-	if got, want := ids(ss), []string{"ses_clean"}; !equal(got, want) {
+	if got, want := ids(ss), []string{"ses_clean"}; !slices.Equal(got, want) {
 		t.Fatalf("got %v, want the corrupt-id row dropped", got)
 	}
 	if ss[0].Label != "line1 line2" {
@@ -94,7 +95,7 @@ func TestScan_MsToSecondsAndFutureSink(t *testing.T) {
 		t.Errorf("LastEpoch = %d, want 500 (ms->s)", got)
 	}
 	// Future session sinks to the bottom despite the larger timestamp.
-	if got, want := ids(ss), []string{"ses_past", "ses_future"}; !equal(got, want) {
+	if got, want := ids(ss), []string{"ses_past", "ses_future"}; !slices.Equal(got, want) {
 		t.Errorf("future-sink order = %v, want %v", got, want)
 	}
 }
@@ -106,7 +107,7 @@ func TestScanFiltered_KeepsOnlyAllowedIDs(t *testing.T) {
 
 	allow := map[string]struct{}{"ses_b": {}}
 	ss, _ := f.open().scanFiltered(allow, time.UnixMilli(1_000_000))
-	if got, want := ids(ss), []string{"ses_b"}; !equal(got, want) {
+	if got, want := ids(ss), []string{"ses_b"}; !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -153,16 +154,4 @@ func find(t *testing.T, ss []*session.Session, id string) *session.Session {
 	}
 	t.Fatalf("session %q not found in %v", id, ids(ss))
 	return nil
-}
-
-func equal(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

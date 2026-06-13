@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/sorafujitani/ccsession/internal/session"
@@ -31,7 +32,7 @@ func TestMessages_FromPartsChronologicalAndCounts(t *testing.T) {
 	if started.UnixMilli() != 10 {
 		t.Errorf("startedAt = %d ms, want 10", started.UnixMilli())
 	}
-	if got, want := bodies(msgs), []string{"user:hi", "assistant:hello"}; !equal(got, want) {
+	if got, want := bodies(msgs), []string{"user:hi", "assistant:hello"}; !slices.Equal(got, want) {
 		t.Errorf("messages = %v, want %v", got, want)
 	}
 }
@@ -64,7 +65,7 @@ func TestMessages_ProjectionPreferredWhenRenderable(t *testing.T) {
 	d := f.open()
 
 	msgs, _, _, _ := d.Messages("ses_a", 30)
-	if got, want := bodies(msgs), []string{"user:from projection first", "assistant:from projection second"}; !equal(got, want) {
+	if got, want := bodies(msgs), []string{"user:from projection first", "assistant:from projection second"}; !slices.Equal(got, want) {
 		t.Errorf("messages = %v, want projection turns reversed to chronological", got)
 	}
 }
@@ -100,7 +101,7 @@ func TestMessages_ProjectionLimitReturnsNewestN(t *testing.T) {
 	if total != 4 {
 		t.Errorf("total = %d, want 4", total)
 	}
-	if got, want := bodies(msgs), []string{"user:3", "user:4"}; !equal(got, want) {
+	if got, want := bodies(msgs), []string{"user:3", "user:4"}; !slices.Equal(got, want) {
 		t.Errorf("limited projection = %v, want newest 2 in chronological order", got)
 	}
 }
@@ -163,7 +164,7 @@ func TestMessages_LimitReturnsNewestN(t *testing.T) {
 		t.Errorf("total = %d, want 5", total)
 	}
 	// Newest 2, still chronological: "4","5".
-	if got, want := bodies(msgs), []string{"user:4", "user:5"}; !equal(got, want) {
+	if got, want := bodies(msgs), []string{"user:4", "user:5"}; !slices.Equal(got, want) {
 		t.Errorf("limited messages = %v, want newest 2 in order", got)
 	}
 }

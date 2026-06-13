@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"slices"
 	"sort"
 	"testing"
 )
@@ -46,10 +47,10 @@ func TestGrepKeys_MatchesTitleAndBody(t *testing.T) {
 	f.session("ses_none", "/p", "nothing", 300)
 	d := f.open()
 
-	if got := keysSorted(mustGrep(t, d, "needle", false)); !equal(got, []string{"ses_body"}) {
+	if got := keysSorted(mustGrep(t, d, "needle", false)); !slices.Equal(got, []string{"ses_body"}) {
 		t.Errorf("body match = %v, want [ses_body]", got)
 	}
-	if got := keysSorted(mustGrep(t, d, "title", false)); !equal(got, []string{"ses_title"}) {
+	if got := keysSorted(mustGrep(t, d, "title", false)); !slices.Equal(got, []string{"ses_title"}) {
 		t.Errorf("title match = %v, want [ses_title]", got)
 	}
 }
@@ -57,7 +58,7 @@ func TestGrepKeys_MatchesTitleAndBody(t *testing.T) {
 func TestGrepKeys_CaseInsensitiveFixedString(t *testing.T) {
 	f := newFixture(t, fixtureOpts{})
 	f.session("ses_a", "/p", "Hello World", 100)
-	if got := keysSorted(mustGrep(t, f.open(), "hello", false)); !equal(got, []string{"ses_a"}) {
+	if got := keysSorted(mustGrep(t, f.open(), "hello", false)); !slices.Equal(got, []string{"ses_a"}) {
 		t.Errorf("case-insensitive match = %v, want [ses_a]", got)
 	}
 }
@@ -65,7 +66,7 @@ func TestGrepKeys_CaseInsensitiveFixedString(t *testing.T) {
 func TestGrepKeys_RegexMode(t *testing.T) {
 	f := newFixture(t, fixtureOpts{})
 	f.session("ses_a", "/p", "opencode rules", 100)
-	if got := keysSorted(mustGrep(t, f.open(), "o.*code", true)); !equal(got, []string{"ses_a"}) {
+	if got := keysSorted(mustGrep(t, f.open(), "o.*code", true)); !slices.Equal(got, []string{"ses_a"}) {
 		t.Errorf("regex match = %v, want [ses_a]", got)
 	}
 }
@@ -108,7 +109,7 @@ func TestGrepKeys_LikeWildcardsAreLiteral(t *testing.T) {
 	d := f.open()
 
 	got := keysSorted(mustGrep(t, d, "100%", false))
-	if !equal(got, []string{"ses_pct"}) {
+	if !slices.Equal(got, []string{"ses_pct"}) {
 		t.Errorf("literal %% match = %v, want only ses_pct", got)
 	}
 }

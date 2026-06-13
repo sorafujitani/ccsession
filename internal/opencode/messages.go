@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 
@@ -64,10 +65,9 @@ ORDER BY m.time_created, m.id, p.id`
 	defer rows.Close()
 
 	var (
-		out      []session.Message
-		curID    string
-		cur      *session.Message
-		curHasID bool
+		out   []session.Message
+		curID string
+		cur   *session.Message
 	)
 	flush := func() {
 		if cur != nil && isRenderableRole(cur.Role) {
@@ -81,9 +81,9 @@ ORDER BY m.time_created, m.id, p.id`
 		if err := rows.Scan(&msgID, &msgData, &part); err != nil {
 			return nil, err
 		}
-		if !curHasID || msgID != curID {
+		if cur == nil || msgID != curID {
 			flush()
-			curID, curHasID = msgID, true
+			curID = msgID
 			cur = newTurn(msgData)
 		}
 		appendText(cur, part)
@@ -161,7 +161,7 @@ ORDER BY seq DESC, id DESC`
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	reverse(rev)
+	slices.Reverse(rev)
 	return rev, nil
 }
 
@@ -178,10 +178,4 @@ func msToTime(ms int64) time.Time {
 		return time.Time{}
 	}
 	return time.UnixMilli(ms)
-}
-
-func reverse(m []session.Message) {
-	for i, j := 0, len(m)-1; i < j; i, j = i+1, j-1 {
-		m[i], m[j] = m[j], m[i]
-	}
 }
