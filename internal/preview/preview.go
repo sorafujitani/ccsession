@@ -66,7 +66,30 @@ func Run(id string, opts Options) error {
 	if s == nil {
 		return fmt.Errorf("session not found: %s", id)
 	}
-	return render(s, os.Stdout, opts)
+	return renderFrom(src, s, os.Stdout, opts)
+}
+
+// messageSource is the seam for a backend that has no JSONL transcript: it
+// supplies the preview's turns directly. Satisfied structurally by the
+// OpenCode source; the claude source omits it and falls back to JSONLPath.
+type messageSource interface {
+	Messages(s *session.Session, limit int) ([]session.Message, time.Time, int, error)
+}
+
+func renderFrom(src any, s *session.Session, out io.Writer, opts Options) error {
+	if ms, ok := src.(messageSource); ok {
+		msgs, startedAt, total, err := ms.Messages(s, maxMessages)
+		return renderWith(s, out, opts, toItems(msgs), startedAt, total, err)
+	}
+	return render(s, out, opts)
+}
+
+func toItems(msgs []session.Message) []messageItem {
+	items := make([]messageItem, len(msgs))
+	for i, m := range msgs {
+		items[i] = messageItem{Role: m.Role, Timestamp: m.Timestamp, Body: m.Body}
+	}
+	return items
 }
 
 func render(s *session.Session, out io.Writer, opts Options) error {
@@ -74,6 +97,13 @@ func render(s *session.Session, out io.Writer, opts Options) error {
 	if err != nil {
 		return err
 	}
+	return renderWith(s, out, opts, messages, startedAt, totalMsgs, nil)
+}
+
+// renderWith writes the header and message tail. loadErr (non-nil only for a
+// message-source backend) degrades the body to a notice while still printing
+// the header, since the session itself resolved fine.
+func renderWith(s *session.Session, out io.Writer, opts Options, messages []messageItem, startedAt time.Time, totalMsgs int, loadErr error) error {
 	if startedAt.IsZero() && !s.LastTime.IsZero() {
 		startedAt = s.LastTime
 	}
@@ -104,6 +134,11 @@ func render(s *session.Session, out io.Writer, opts Options) error {
 		ansi.Dim, totalMsgs, ansi.Reset,
 	)
 	fmt.Fprintln(w, ansi.Dim+strings.Repeat("─", 60)+ansi.Reset)
+
+	if loadErr != nil {
+		fmt.Fprintf(w, "%s(messages unavailable: %v)%s\n", ansi.Dim, loadErr, ansi.Reset)
+		return nil
+	}
 
 	tail := messages
 	if len(tail) > maxMessages {

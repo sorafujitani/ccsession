@@ -34,7 +34,9 @@ func forName(name string) (Source, error) {
 	switch name {
 	case "", nameClaude:
 		return claudeSource{}, nil
+	case nameOpencode:
+		return newOpencodeSource()
 	default:
-		return nil, fmt.Errorf("unknown source %q (valid: %s)", name, nameClaude)
+		return nil, fmt.Errorf("unknown source %q (valid: %s, %s)", name, nameClaude, nameOpencode)
 	}
 }

@@ -27,6 +27,32 @@ func (d *DB) ScanFiltered(allow map[string]struct{}) ([]*session.Session, error)
 	return d.scanFiltered(allow, time.Now())
 }
 
+// FindByID returns the single session with the given id, or
+// session.ErrSessionFileMissing when none matches (so preview/resume reuse the
+// claude error handling).
+func (d *DB) FindByID(id string) (*session.Session, error) {
+	const q = `SELECT id, title, directory, time_updated FROM session WHERE id = ?`
+	rows, err := d.query(q, id)
+	if err != nil {
+		return nil, d.schemaError(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, session.ErrSessionFileMissing
+	}
+	var (
+		gotID, title, dir string
+		timeUpdatedMs     int64
+	)
+	if err := rows.Scan(&gotID, &title, &dir, &timeUpdatedMs); err != nil {
+		return nil, d.schemaError(err)
+	}
+	return newSession(gotID, title, dir, timeUpdatedMs), nil
+}
+
 func (d *DB) scanFiltered(allow map[string]struct{}, now time.Time) ([]*session.Session, error) {
 	rows, err := d.query(scanQuery)
 	if err != nil {
