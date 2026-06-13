@@ -64,7 +64,7 @@ func init() {
 	}
 }
 
-const usage = `ccsession - fzf frontend for "claude --resume"
+const usage = `ccsession - fzf frontend for agent session resume
 
 USAGE:
   ccsession [--source <s>] [--exclude-dir <s>]        # list -> fzf -> resume
@@ -76,11 +76,12 @@ USAGE:
   non-flag argument).
 
 GLOBAL FLAGS:
-  --source <s>        session backend: claude (default) | opencode | grok. Inherited
+  --source <s>        session backend: claude (default) | opencode | grok | codex. Inherited
                       by the picker's reload/preview/resume re-invocations via
                       CCSESSION_SOURCE.
   --opencode          shorthand for --source=opencode
   --grok              shorthand for --source=grok
+  --codex             shorthand for --source=codex
   --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive).
                       Applied to every list call, including grep/dir/fuzzy
                       reloads, so the matching directories never appear in
@@ -134,7 +135,7 @@ FLAGS:
   --regex             treat --query as a regular expression
 `
 
-const resumeUsage = `ccsession resume - chdir to the session's cwd and exec "claude --resume"
+const resumeUsage = `ccsession resume - chdir to the session's cwd and exec the selected agent
 
 USAGE:
   ccsession resume <sessionId>
@@ -189,6 +190,7 @@ type globalFlags struct {
 	source     string
 	opencode   bool
 	grok       bool
+	codex      bool
 	binds      config.Keybindings
 }
 
@@ -210,6 +212,12 @@ func applySource(gf globalFlags) error {
 			return fmt.Errorf("--grok conflicts with --source=%s", name)
 		}
 		name = "grok"
+	}
+	if gf.codex {
+		if name != "" && name != "codex" {
+			return fmt.Errorf("--codex conflicts with --source=%s", name)
+		}
+		name = "codex"
 	}
 	if name == "" {
 		name = os.Getenv(source.EnvVar)
@@ -247,6 +255,12 @@ next:
 		// --grok is sugar for --source=grok and takes no value.
 		if a == "--grok" {
 			gf.grok = true
+			i++
+			continue next
+		}
+		// --codex is sugar for --source=codex and takes no value.
+		if a == "--codex" {
+			gf.codex = true
 			i++
 			continue next
 		}
