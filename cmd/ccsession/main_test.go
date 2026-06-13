@@ -103,6 +103,12 @@ func TestParseGlobalFlags(t *testing.T) {
 			// "list" is the subcommand, not a value consumed by --opencode.
 			wantRest: []string{"list"},
 		},
+		{
+			name:     "grok sugar takes no value",
+			args:     []string{"--grok", "list"},
+			wantGF:   globalFlags{grok: true},
+			wantRest: []string{"list"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -127,12 +133,17 @@ func TestApplySource(t *testing.T) {
 	}{
 		{name: "default claude leaves env empty", wantEnv: ""},
 		{name: "opencode sugar", gf: globalFlags{opencode: true}, wantEnv: "opencode"},
+		{name: "grok sugar", gf: globalFlags{grok: true}, wantEnv: "grok"},
 		{name: "source flag", gf: globalFlags{source: "opencode"}, wantEnv: "opencode"},
+		{name: "source flag grok", gf: globalFlags{source: "grok"}, wantEnv: "grok"},
 		{name: "sugar agrees with source", gf: globalFlags{opencode: true, source: "opencode"}, wantEnv: "opencode"},
 		{name: "sugar contradicts source", gf: globalFlags{opencode: true, source: "claude"}, wantErr: true},
+		{name: "grok sugar contradicts source", gf: globalFlags{grok: true, source: "opencode"}, wantErr: true},
+		{name: "backend sugars conflict", gf: globalFlags{opencode: true, grok: true}, wantErr: true},
 		{name: "unknown source flag", gf: globalFlags{source: "bogus"}, wantErr: true},
 		{name: "inherited env is validated", env: "bogus", wantErr: true},
 		{name: "inherited valid env survives", env: "opencode", wantEnv: "opencode"},
+		{name: "inherited grok env survives", env: "grok", wantEnv: "grok"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -76,10 +76,11 @@ USAGE:
   non-flag argument).
 
 GLOBAL FLAGS:
-  --source <s>        session backend: claude (default) | opencode. Inherited
+  --source <s>        session backend: claude (default) | opencode | grok. Inherited
                       by the picker's reload/preview/resume re-invocations via
                       CCSESSION_SOURCE.
   --opencode          shorthand for --source=opencode
+  --grok              shorthand for --source=grok
   --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive).
                       Applied to every list call, including grep/dir/fuzzy
                       reloads, so the matching directories never appear in
@@ -106,7 +107,7 @@ LIST FLAGS:
   --color <mode>      color output: auto (default) | always | never
   --no-color          shorthand for --color=never
 
-REQUIRES: fzf, claude.
+REQUIRES: fzf, selected agent CLI.
 `
 
 const listUsage = `ccsession list - emit TSV rows for fzf
@@ -187,12 +188,13 @@ type globalFlags struct {
 	excludeDir string
 	source     string
 	opencode   bool
+	grok       bool
 	binds      config.Keybindings
 }
 
-// applySource folds --opencode / --source into the CCSESSION_SOURCE env var so
+// applySource folds backend shorthands / --source into the CCSESSION_SOURCE env var so
 // every subcommand and fzf re-invocation resolves the same backend. It rejects
-// a contradictory --opencode --source=claude and any unknown source name; both
+// contradictory shorthand/source pairs and any unknown source name; both
 // are exit-2 usage errors. A value inherited from the environment (a re-invoked
 // fzf child) is validated too, so a typo can't slip through as the default.
 func applySource(gf globalFlags) error {
@@ -202,6 +204,12 @@ func applySource(gf globalFlags) error {
 			return fmt.Errorf("--opencode conflicts with --source=%s", name)
 		}
 		name = "opencode"
+	}
+	if gf.grok {
+		if name != "" && name != "grok" {
+			return fmt.Errorf("--grok conflicts with --source=%s", name)
+		}
+		name = "grok"
 	}
 	if name == "" {
 		name = os.Getenv(source.EnvVar)
@@ -233,6 +241,12 @@ next:
 		// --opencode is sugar for --source=opencode and takes no value.
 		if a == "--opencode" {
 			gf.opencode = true
+			i++
+			continue next
+		}
+		// --grok is sugar for --source=grok and takes no value.
+		if a == "--grok" {
+			gf.grok = true
 			i++
 			continue next
 		}

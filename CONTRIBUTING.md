@@ -15,6 +15,7 @@ can agree on the approach before you invest time in a PR.
 | [`fzf`](https://github.com/junegunn/fzf) | running the interactive picker |
 | `claude` ([Claude Code CLI](https://docs.claude.com/en/docs/claude-code)) | exercising `resume` end to end |
 | [`opencode`](https://opencode.ai) | exercising the `--source=opencode` backend (optional) |
+| `grok` (Grok Build TUI) | exercising the `--source=grok` backend (optional) |
 
 A [Nix](https://nixos.org/) flake is provided that pins Go, `fzf`, `gopls`, and
 `goreleaser`. It is the quickest way to get a reproducible toolchain, but it is
@@ -52,12 +53,13 @@ internal/
   ansi/           ANSI escape helpers
   config/         config-file + env + flag resolution
   grep/           full-text search over JSONL transcripts
+  grok/           Grok JSON/JSONL backend (sessions, preview, grep)
   list/           TSV row rendering for fzf
   opencode/       OpenCode SQLite backend (sessions, preview, grep)
   preview/        preview-pane rendering
-  resume/         chdir + exec of `claude --resume`
+  resume/         chdir + exec of the selected agent's resume command
   session/        scanning and parsing of ~/.claude/projects/*.jsonl
-  source/         backend abstraction (claude / opencode selection)
+  source/         backend abstraction (claude / opencode / grok selection)
   timefmt/        relative-time formatting
 ```
 
@@ -100,9 +102,9 @@ Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`.
 
 ## Pre-release smoke checks
 
-`go test ./...` covers most behaviour, but the OpenCode backend talks to an
-external SQLite store that the test suite drives through fixtures. Before
-tagging a release, run a manual smoke test against a real OpenCode install:
+`go test ./...` covers most behaviour, but optional backends read external
+agent stores that the test suite drives through fixtures. Before tagging a
+release, run a manual smoke test against real installs:
 
 1. Create at least one session with the latest OpenCode (run `opencode` and
    send a message or two so the session is persisted to its store).
@@ -112,6 +114,7 @@ tagging a release, run a manual smoke test against a real OpenCode install:
    - switch to grep mode and type a word from the session — it stays
      matched (**grep**).
    - press Enter — it resumes in the original directory (**resume**).
+3. Repeat the same checklist with a Grok session using `ccsession --grok`.
 
 The Claude backend is exercised continuously in everyday use, so it needs no
 separate checklist.

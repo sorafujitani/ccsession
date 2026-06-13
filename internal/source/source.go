@@ -33,13 +33,13 @@ func FromEnv() (Source, error) {
 
 // Names lists the valid backend names (excluding the empty default).
 func Names() []string {
-	return []string{nameClaude, nameOpencode}
+	return []string{nameClaude, nameOpencode, nameGrok}
 }
 
 // ValidName reports whether name selects a known backend; the empty string is
 // valid and means the claude default.
 func ValidName(name string) bool {
-	return name == "" || name == nameClaude || name == nameOpencode
+	return name == "" || name == nameClaude || name == nameOpencode || name == nameGrok
 }
 
 func forName(name string) (Source, error) {
@@ -48,6 +48,8 @@ func forName(name string) (Source, error) {
 		return claudeSource{}, nil
 	case nameOpencode:
 		return newOpencodeSource()
+	case nameGrok:
+		return newGrokSource()
 	default:
 		return nil, fmt.Errorf("unknown source %q (valid: %s)", name, strings.Join(Names(), ", "))
 	}

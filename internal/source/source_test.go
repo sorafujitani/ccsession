@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sorafujitani/ccsession/internal/grok"
 	"github.com/sorafujitani/ccsession/internal/opencode"
 	"github.com/sorafujitani/ccsession/internal/session"
 )
@@ -17,6 +18,7 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 		t.Fatalf("write db: %v", err)
 	}
 	t.Setenv(opencode.EnvDBPath, db)
+	t.Setenv(grok.EnvHome, t.TempDir())
 
 	cases := []struct {
 		env      string
@@ -26,6 +28,7 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 		{"", "claude", false},
 		{"claude", "claude", false},
 		{"opencode", "opencode", false},
+		{"grok", "grok", false},
 		// An unknown value is an error, not a silent fall back to claude:
 		// a typo must surface, not quietly show the wrong agent's sessions.
 		{"clauded", "", true},
@@ -44,6 +47,25 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 		}
 		if got.Name() != c.wantName {
 			t.Errorf("FromEnv(%q).Name() = %q, want %q", c.env, got.Name(), c.wantName)
+		}
+	}
+}
+
+func TestGrok_ResumeSpec(t *testing.T) {
+	bin, args, err := grokSource{}.ResumeSpec(&session.Session{ID: "abc123"})
+	if err != nil {
+		t.Fatalf("ResumeSpec: %v", err)
+	}
+	if bin != "grok" {
+		t.Errorf("bin = %q, want grok", bin)
+	}
+	want := []string{"grok", "--resume", "abc123"}
+	if len(args) != len(want) {
+		t.Fatalf("args = %v, want %v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], want[i])
 		}
 	}
 }

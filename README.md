@@ -30,6 +30,7 @@ resumes the one you pick in its original working directory.
 | [`fzf`](https://github.com/junegunn/fzf) `>= 0.58.0` | interactive picker |
 | `claude` ([Claude Code CLI](https://docs.claude.com/en/docs/claude-code)) | resuming sessions |
 | [`opencode`](https://opencode.ai) | listing & resuming OpenCode sessions (only with `--source=opencode`) |
+| `grok` (Grok Build TUI) | listing & resuming Grok sessions (only with `--source=grok`) |
 
 `ccsession` depends on newer `fzf` actions such as `transform`, `rebind`,
 `unbind`, `disable-search`, and `change-nth`. The newest of those,
@@ -83,15 +84,16 @@ brew install sorafujitani/tap/ccsession
 The formula lives in
 [`sorafujitani/homebrew-tap`](https://github.com/sorafujitani/homebrew-tap)
 and GoReleaser refreshes it on every tagged release. `fzf` is installed as a
-dependency; the `claude` CLI must be installed separately. `opencode` is
-needed only with `--source=opencode` — it backs an optional feature (unlike
-`fzf`, which is always required), so it is intentionally left out of the
-formula's `depends_on`.
+dependency; the `claude` CLI must be installed separately. `opencode` and
+`grok` are needed only with their matching `--source` backends — they back
+optional features (unlike `fzf`, which is always required), so they are
+intentionally left out of the formula's `depends_on`.
 
 ## Usage
 
 ```sh
 ccsession                            # list -> fzf -> resume
+ccsession --grok                     # use Grok sessions from ~/.grok/sessions
 ccsession list  [--grep Q] [--regex] # emit TSV rows to stdout
 ccsession preview [--query Q] [--regex] <id> # render the preview pane (Q highlighted)
 ccsession resume  <id>               # chdir to the session's cwd, exec `claude --resume`
@@ -149,17 +151,17 @@ ccsession exits with an error instead of starting the picker.
 
 ## How it works
 
-1. `ccsession list` walks `~/.claude/projects/*/`, reads the tail of each
-   JSONL transcript in parallel, and prints one TSV row per session
-   (`id`, `epoch`, relative time, cwd basename, label).
+1. `ccsession list` reads the selected backend (`~/.claude/projects/*/` by
+   default, or `--source=opencode` / `--source=grok`) and prints one TSV row
+   per session (`id`, `epoch`, relative time, cwd basename, label).
 2. `fzf` consumes the TSV. The three key bindings swap fzf's matcher
    between fuzzy mode, directory-only mode, and grep mode (which reloads
    via `ccsession list --grep <query>` on every keystroke). The current
    query is also forwarded to the preview as `ccsession preview --query
    <query> <id>`, which highlights its matches in the rendered messages.
 3. On `Enter`, `ccsession resume <id>` resolves the session's original
-   `cwd`, `chdir`s into it, and `execve`s `claude --resume <id>` so the
-   resumed process fully replaces the picker.
+   `cwd`, `chdir`s into it, and `execve`s the selected agent's resume command
+   so the resumed process fully replaces the picker.
 
 ## Development
 
