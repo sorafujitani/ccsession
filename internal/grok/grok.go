@@ -96,8 +96,8 @@ func (s *Store) FindByID(id string) (*session.Session, error) {
 	}
 	for _, path := range paths {
 		sess, err := s.readSummary(path)
-		if err != nil {
-			return nil, err
+		if err != nil || sess == nil {
+			continue
 		}
 		if sess.ID == id {
 			return sess, nil
@@ -162,10 +162,7 @@ func (s *Store) scanFiltered(allow map[string]struct{}) ([]*session.Session, err
 	out := make([]*session.Session, 0, len(paths))
 	for _, path := range paths {
 		sess, err := s.readSummary(path)
-		if err != nil {
-			return nil, err
-		}
-		if sess == nil || !allowed(allow, sess.ID) {
+		if err != nil || sess == nil || !allowed(allow, sess.ID) {
 			continue
 		}
 		out = append(out, sess)

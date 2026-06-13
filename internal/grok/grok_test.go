@@ -81,6 +81,51 @@ func TestGrepKeysFeedScanFiltered(t *testing.T) {
 	}
 }
 
+func TestScanSkipsBadSummaries(t *testing.T) {
+	home, cwd, id := fixture(t)
+	badDir := filepath.Join(home, "sessions", url.PathEscape(cwd), "bad\tid")
+	if err := os.MkdirAll(badDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(badDir, "summary.json"), []byte(`{"info":{"id":"bad\tid","cwd":"`+cwd+`"}}`), 0o644); err != nil {
+		t.Fatalf("write corrupt summary: %v", err)
+	}
+	brokenDir := filepath.Join(home, "sessions", url.PathEscape("/tmp/broken"))
+	if err := os.MkdirAll(brokenDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(brokenDir, "summary.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatalf("write broken summary: %v", err)
+	}
+
+	ss, err := OpenAt(home).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 1 || ss[0].ID != id {
+		t.Fatalf("Scan = %#v, want only valid session %s", ss, id)
+	}
+}
+
+func TestFindByIDSkipsCorruptSummary(t *testing.T) {
+	home, cwd, id := fixture(t)
+	badDir := filepath.Join(home, "sessions", url.PathEscape(cwd), "bad\tid")
+	if err := os.MkdirAll(badDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(badDir, "summary.json"), []byte(`{"info":{"id":"bad\tid","cwd":"`+cwd+`"}}`), 0o644); err != nil {
+		t.Fatalf("write corrupt summary: %v", err)
+	}
+
+	s, err := OpenAt(home).FindByID(id)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if s.ID != id {
+		t.Fatalf("FindByID returned %q, want %q", s.ID, id)
+	}
+}
+
 func TestScanSinksFutureUpdatedAt(t *testing.T) {
 	home := t.TempDir()
 	writeSummaryOnly(t, home, "past", "/tmp/past", "2020-01-01T00:00:00Z")
