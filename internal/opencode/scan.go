@@ -12,27 +12,21 @@ import (
 	"github.com/sorafujitani/ccsession/internal/session"
 )
 
-// scanQuery lists resumable root sessions newest-first. parent_id IS NULL drops
-// sub-sessions (tool/child turns); time_archived IS NULL drops archived ones.
-// The id tiebreaker keeps the order stable when two sessions share a timestamp.
+// parent_id IS NULL drops sub-sessions; time_archived IS NULL drops archived ones.
 const scanQuery = `SELECT id, title, directory, time_updated
 FROM session
 WHERE parent_id IS NULL AND time_archived IS NULL
 ORDER BY time_updated DESC, id DESC`
 
-// Scan returns every resumable root session, newest-first.
 func (d *DB) Scan() ([]*session.Session, error) {
 	return d.scanFiltered(nil, time.Now())
 }
 
-// ScanFiltered returns only the sessions whose id is in allow (the id set grep
-// produced). A nil/empty allow returns everything, matching Scan.
+// ScanFiltered keeps only sessions whose id is in allow; nil allow keeps all.
 func (d *DB) ScanFiltered(allow map[string]struct{}) ([]*session.Session, error) {
 	return d.scanFiltered(allow, time.Now())
 }
 
-// scanFiltered is the env-injected core (now is a seam for the future-sinking
-// test). allow == nil means "no filter".
 func (d *DB) scanFiltered(allow map[string]struct{}, now time.Time) ([]*session.Session, error) {
 	rows, err := d.query(scanQuery)
 	if err != nil {
@@ -47,8 +41,6 @@ func (d *DB) scanFiltered(allow map[string]struct{}, now time.Time) ([]*session.
 	return out, rows.Err()
 }
 
-// buildSessions maps query rows to sessions, applying the optional id filter.
-// Exported-for-test via the package-internal call sites.
 func buildSessions(rows *sql.Rows, allow map[string]struct{}, now time.Time) ([]*session.Session, error) {
 	nowEpoch := now.Unix()
 	var out []*session.Session
@@ -60,16 +52,8 @@ func buildSessions(rows *sql.Rows, allow map[string]struct{}, now time.Time) ([]
 		if err := rows.Scan(&id, &title, &dir, &timeUpdatedMs); err != nil {
 			return nil, err
 		}
-		// id feeds the tab-separated fzf row and the resume exec; a control
-		// char in it would corrupt the column contract, and it can't be
-		// sanitized (resume needs the exact id), so drop the row entirely.
-		if strings.ContainsAny(id, "\t\n\r") {
+		if idCorruptsRow(id) || !allowed(allow, id) {
 			continue
-		}
-		if allow != nil {
-			if _, ok := allow[id]; !ok {
-				continue
-			}
 		}
 		out = append(out, newSession(id, title, dir, timeUpdatedMs))
 	}
@@ -79,10 +63,23 @@ func buildSessions(rows *sql.Rows, allow map[string]struct{}, now time.Time) ([]
 		if ki != kj {
 			return ki > kj
 		}
-		// Deterministic tiebreak so future-sunk entries don't shuffle.
 		return out[i].ID < out[j].ID
 	})
 	return out, nil
+}
+
+// idCorruptsRow reports an id that can't be sanitized away: it feeds both the
+// tab-separated fzf row and the resume exec, so a control char drops the row.
+func idCorruptsRow(id string) bool {
+	return strings.ContainsAny(id, "\t\n\r")
+}
+
+func allowed(allow map[string]struct{}, id string) bool {
+	if allow == nil {
+		return true
+	}
+	_, ok := allow[id]
+	return ok
 }
 
 func newSession(id, title, dir string, timeUpdatedMs int64) *session.Session {
@@ -94,8 +91,6 @@ func newSession(id, title, dir string, timeUpdatedMs int64) *session.Session {
 		LastTime:  last,
 		LastEpoch: last.Unix(),
 	}
-	// An empty directory is a legacy/incomplete session: we know nothing about
-	// where it ran, which the list marks [cwd?] and resume refuses to act on.
 	if dir == "" {
 		s.CWDUnknown = true
 	} else {
@@ -105,10 +100,8 @@ func newSession(id, title, dir string, timeUpdatedMs int64) *session.Session {
 	return s
 }
 
-// sortEpoch sinks a future timestamp to the bottom for ordering, so a
-// clock-skewed or bogus future time_updated can't pin a session to the top of
-// the list. Mirrors the claude scan's identically-named helper (returns 0 for
-// the future, not now, so future-dated sessions sort last).
+// sortEpoch sinks future timestamps to the bottom (returns 0), matching the
+// claude scan so a clock-skewed time_updated can't pin a session to the top.
 func sortEpoch(epoch, nowEpoch int64) int64 {
 	if epoch > nowEpoch {
 		return 0
@@ -121,10 +114,8 @@ func pathIsDir(path string) bool {
 	return err == nil && fi.IsDir()
 }
 
-// schemaError wraps a failed scan query with the recovery path: which DB, and
-// the migration state it carries, so a column drift in a future OpenCode
-// release produces an actionable message instead of a bare "no such column".
-// Only the OpenCode feature degrades; the claude source is untouched.
+// schemaError turns a column drift in a future OpenCode release into an
+// actionable message carrying the migration state, instead of "no such column".
 func (d *DB) schemaError(cause error) error {
 	newest, count := d.migrationState()
 	if count == 0 {
@@ -135,8 +126,6 @@ func (d *DB) schemaError(cause error) error {
 		d.path, cause, count, newest)
 }
 
-// migrationState reports the newest applied migration id and the total count.
-// Best-effort: a DB without a migration table returns ("", 0).
 func (d *DB) migrationState() (newest string, count int) {
 	rows, err := d.query("SELECT id FROM migration ORDER BY id")
 	if err != nil {
