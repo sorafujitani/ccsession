@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sorafujitani/ccsession/internal/ansi"
+	"github.com/sorafujitani/ccsession/internal/codex"
 	"github.com/sorafujitani/ccsession/internal/opencode"
 	"github.com/sorafujitani/ccsession/internal/session"
 	"github.com/sorafujitani/ccsession/internal/source"
@@ -397,5 +398,43 @@ func TestOpencodeSourceSatisfiesMessageSeam(t *testing.T) {
 	}
 	if _, ok := src.(messageSource); !ok {
 		t.Fatal("opencode source no longer satisfies messageSource; preview would fall back to the JSONL path")
+	}
+}
+
+func TestCodexSourceRendersThroughMessageSeam(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	id := "019ec14c-b49c-7a40-a386-0a1699dbb01c"
+	dir := filepath.Join(home, "sessions", "2026", "06", "14")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := `{"timestamp":"2026-06-14T00:00:00Z","type":"session_meta","payload":{"id":"` + id + `","timestamp":"2026-06-14T00:00:00Z","cwd":"` + cwd + `"}}` + "\n" +
+		`{"timestamp":"2026-06-14T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"codex preview body"}]}}` + "\n" +
+		`{"timestamp":"2026-06-14T00:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"assistant reply"}]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "rollout-2026-06-14T00-00-00-"+id+".jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv(codex.EnvHome, home)
+	t.Setenv(source.EnvVar, "codex")
+
+	src, err := source.FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if _, ok := src.(messageSource); !ok {
+		t.Fatal("codex source no longer satisfies messageSource; preview would fall back to the Claude JSONL parser")
+	}
+	s, err := src.FindByID(id)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := renderFrom(src, s, &buf, Options{}); err != nil {
+		t.Fatalf("renderFrom: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "codex preview body") || !strings.Contains(out, "assistant reply") {
+		t.Fatalf("rendered preview missing Codex messages: %q", out)
 	}
 }

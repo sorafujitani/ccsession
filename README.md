@@ -1,12 +1,13 @@
 # ccsession
 
-> An fzf-powered session picker for `claude --resume`.
+> An fzf-powered session picker for resuming local agent sessions.
 
 ![ccsession demo](./docs/assets/ccsession_demo.gif)
 
-`ccsession` lists every Claude Code session under `~/.claude/projects`, lets
-you fuzzy-find across all of your projects with a live preview pane, and
-resumes the one you pick in its original working directory.
+`ccsession` lists local agent sessions (Claude Code by default, with optional
+OpenCode, Grok, and Codex backends), lets you fuzzy-find across all of your
+projects with a live preview pane, and resumes the one you pick in its original
+working directory.
 
 ## Features
 
@@ -18,7 +19,7 @@ resumes the one you pick in its original working directory.
   timestamps and roles. In grep mode the matched query is highlighted in the
   preview so you can spot the hit at a glance.
 - **Faithful resume** — `chdir`s back to the session's original `cwd` before
-  exec'ing `claude --resume`, so paths and tooling Just Work.
+  exec'ing the selected agent's resume command, so paths and tooling Just Work.
 - **Single static binary** — written in Go with no cgo; bundles a pure-Go
   SQLite reader (for OpenCode support) and a small TOML parser for the
   optional config file.
@@ -31,6 +32,7 @@ resumes the one you pick in its original working directory.
 | `claude` ([Claude Code CLI](https://docs.claude.com/en/docs/claude-code)) | resuming sessions |
 | [`opencode`](https://opencode.ai) | listing & resuming OpenCode sessions (only with `--source=opencode`) |
 | `grok` (Grok Build TUI) | listing & resuming Grok sessions (only with `--source=grok`) |
+| `codex` (Codex CLI) | listing & resuming Codex sessions (only with `--source=codex`) |
 
 `ccsession` depends on newer `fzf` actions such as `transform`, `rebind`,
 `unbind`, `disable-search`, and `change-nth`. The newest of those,
@@ -84,8 +86,8 @@ brew install sorafujitani/tap/ccsession
 The formula lives in
 [`sorafujitani/homebrew-tap`](https://github.com/sorafujitani/homebrew-tap)
 and GoReleaser refreshes it on every tagged release. `fzf` is installed as a
-dependency; the `claude` CLI must be installed separately. `opencode` and
-`grok` are needed only with their matching `--source` backends — they back
+dependency; the `claude` CLI must be installed separately. `opencode`, `grok`,
+and `codex` are needed only with their matching `--source` backends — they back
 optional features (unlike `fzf`, which is always required), so they are
 intentionally left out of the formula's `depends_on`.
 
@@ -94,9 +96,10 @@ intentionally left out of the formula's `depends_on`.
 ```sh
 ccsession                            # list -> fzf -> resume
 ccsession --grok                     # use Grok sessions from ~/.grok/sessions
+ccsession --codex                    # use Codex sessions from ~/.codex/sessions
 ccsession list  [--grep Q] [--regex] # emit TSV rows to stdout
 ccsession preview [--query Q] [--regex] <id> # render the preview pane (Q highlighted)
-ccsession resume  <id>               # chdir to the session's cwd, exec `claude --resume`
+ccsession resume  <id>               # chdir to the session's cwd, exec the selected agent
 ccsession --version
 ccsession --help
 ```
@@ -152,7 +155,7 @@ ccsession exits with an error instead of starting the picker.
 ## How it works
 
 1. `ccsession list` reads the selected backend (`~/.claude/projects/*/` by
-   default, or `--source=opencode` / `--source=grok`) and prints one TSV row
+   default, or `--source=opencode` / `--source=grok` / `--source=codex`) and prints one TSV row
    per session (`id`, `epoch`, relative time, cwd basename, label).
 2. `fzf` consumes the TSV. The three key bindings swap fzf's matcher
    between fuzzy mode, directory-only mode, and grep mode (which reloads
@@ -162,6 +165,10 @@ ccsession exits with an error instead of starting the picker.
 3. On `Enter`, `ccsession resume <id>` resolves the session's original
    `cwd`, `chdir`s into it, and `execve`s the selected agent's resume command
    so the resumed process fully replaces the picker.
+
+Backend-specific homes can be overridden with `GROK_HOME` for Grok and
+`CODEX_HOME` for Codex. Codex defaults to `~/.codex`, reading sessions from
+its `sessions` subdirectory.
 
 ## Development
 
