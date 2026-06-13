@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/sorafujitani/ccsession/internal/session"
@@ -11,16 +12,15 @@ import (
 // chronological order, plus the first turn's time and the total turn count for
 // the preview header.
 //
-// v1 (message+part) is the live write path; v2 (session_message) currently only
-// holds switch events and is read as forward-compat, falling through to v1 when
-// it yields nothing renderable.
+// The session_message projection is read first; it falls back to the message
+// +part store when the projection is empty of renderable turns or absent.
 func (d *DB) Messages(sessionID string, limit int) (msgs []session.Message, startedAt time.Time, total int, err error) {
-	all, err := d.messagesV2(sessionID)
+	all, err := d.messagesFromProjection(sessionID)
 	if err != nil {
 		return nil, time.Time{}, 0, err
 	}
 	if len(all) == 0 {
-		all, err = d.messagesV1(sessionID)
+		all, err = d.messagesFromParts(sessionID)
 		if err != nil {
 			return nil, time.Time{}, 0, err
 		}
@@ -36,22 +36,22 @@ func (d *DB) Messages(sessionID string, limit int) (msgs []session.Message, star
 	return all, startedAt, total, nil
 }
 
-type v1MessageData struct {
+type messageData struct {
 	Role string `json:"role"`
 	Time struct {
 		Created int64 `json:"created"`
 	} `json:"time"`
 }
 
-type v1PartData struct {
+type textPart struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
 
-// messagesV1 groups each message's text parts into one turn, keeping only
-// user/assistant turns. The LEFT JOIN preserves a turn whose only parts are
-// non-text (reasoning/step-start) as an empty body rather than dropping it.
-func (d *DB) messagesV1(sessionID string) ([]session.Message, error) {
+// messagesFromParts groups each message's text parts into one turn, keeping
+// only user/assistant turns. The LEFT JOIN preserves a turn whose only parts
+// are non-text (reasoning/step-start) as an empty body rather than dropping it.
+func (d *DB) messagesFromParts(sessionID string) ([]session.Message, error) {
 	const q = `SELECT m.id, m.data, p.data
 FROM message m
 LEFT JOIN part p ON p.message_id = m.id
@@ -77,37 +77,32 @@ ORDER BY m.time_created, m.id, p.id`
 	for rows.Next() {
 		var msgID string
 		var msgData []byte
-		var partData []byte // NULL for a message with no parts
-		if err := rows.Scan(&msgID, &msgData, &partData); err != nil {
+		var part []byte // NULL for a message with no parts
+		if err := rows.Scan(&msgID, &msgData, &part); err != nil {
 			return nil, err
 		}
 		if !curHasID || msgID != curID {
 			flush()
 			curID, curHasID = msgID, true
-			cur = newV1Message(msgData)
+			cur = newTurn(msgData)
 		}
-		if cur != nil {
-			appendPartText(cur, partData)
-		}
+		appendText(cur, part)
 	}
 	flush()
 	return out, rows.Err()
 }
 
-func newV1Message(data []byte) *session.Message {
-	var md v1MessageData
+func newTurn(data []byte) *session.Message {
+	var md messageData
 	_ = json.Unmarshal(data, &md) // tolerant: unknown fields ignored, role may stay ""
-	return &session.Message{
-		Role:      md.Role,
-		Timestamp: msToTime(md.Time.Created),
-	}
+	return &session.Message{Role: md.Role, Timestamp: msToTime(md.Time.Created)}
 }
 
-func appendPartText(m *session.Message, partData []byte) {
+func appendText(m *session.Message, partData []byte) {
 	if len(partData) == 0 {
 		return
 	}
-	var p v1PartData
+	var p textPart
 	if err := json.Unmarshal(partData, &p); err != nil || p.Type != "text" || p.Text == "" {
 		return
 	}
@@ -117,23 +112,27 @@ func appendPartText(m *session.Message, partData []byte) {
 	m.Body += p.Text
 }
 
-type v2Data struct {
+type projectionData struct {
 	Text string `json:"text"`
 	Time struct {
 		Created int64 `json:"created"`
 	} `json:"time"`
 }
 
-// messagesV2 reads the newest turns by seq and reverses them to chronological
-// order. type comes from the column, not the JSON. Switch events (no text) are
-// dropped, so a table holding only those reads as empty and v1 takes over.
-func (d *DB) messagesV2(sessionID string) ([]session.Message, error) {
+// messagesFromProjection reads the newest turns by seq and reverses them to
+// chronological order; type comes from the column, not the JSON. A projection
+// empty of renderable turns, or absent (a DB predating it), reads as nil so the
+// parts store takes over.
+func (d *DB) messagesFromProjection(sessionID string) ([]session.Message, error) {
 	const q = `SELECT type, data
 FROM session_message
 WHERE session_id = ?
 ORDER BY seq DESC, id DESC`
 	rows, err := d.query(q, sessionID)
 	if err != nil {
+		if isMissingTable(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -148,15 +147,15 @@ ORDER BY seq DESC, id DESC`
 		if !isRenderableRole(typ) {
 			continue
 		}
-		var vd v2Data
-		_ = json.Unmarshal(data, &vd)
-		if vd.Text == "" {
+		var pd projectionData
+		_ = json.Unmarshal(data, &pd)
+		if pd.Text == "" {
 			continue
 		}
 		rev = append(rev, session.Message{
 			Role:      typ,
-			Timestamp: msToTime(vd.Time.Created),
-			Body:      vd.Text,
+			Timestamp: msToTime(pd.Time.Created),
+			Body:      pd.Text,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -168,6 +167,10 @@ ORDER BY seq DESC, id DESC`
 
 func isRenderableRole(role string) bool {
 	return role == "user" || role == "assistant"
+}
+
+func isMissingTable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such table")
 }
 
 func msToTime(ms int64) time.Time {
