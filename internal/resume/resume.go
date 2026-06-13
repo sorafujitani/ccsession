@@ -8,12 +8,17 @@ import (
 	"syscall"
 
 	"github.com/sorafujitani/ccsession/internal/session"
+	"github.com/sorafujitani/ccsession/internal/source"
 )
 
 // Run resolves the original cwd for the given session id, chdirs into it,
-// and execs `claude --resume <id>` to fully replace the current process.
+// and execs the source's resume command to fully replace the current process.
 func Run(id string) error {
-	s, err := session.FindByID(id)
+	src, err := source.FromEnv()
+	if err != nil {
+		return err
+	}
+	s, err := src.FindByID(id)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionFileMissing) {
 			return fmt.Errorf("session not found: %s", id)
@@ -34,12 +39,16 @@ func Run(id string) error {
 	if !s.CWDExists {
 		return fmt.Errorf("original cwd is gone: %s", s.CWD)
 	}
-	claudePath, err := exec.LookPath("claude")
+	bin, args, err := src.ResumeSpec(s)
 	if err != nil {
-		return fmt.Errorf("claude not found in PATH: %w", err)
+		return err
+	}
+	binPath, err := exec.LookPath(bin)
+	if err != nil {
+		return fmt.Errorf("%s not found in PATH: %w", bin, err)
 	}
 	if err := os.Chdir(s.CWD); err != nil {
 		return fmt.Errorf("chdir to %s: %w", s.CWD, err)
 	}
-	return syscall.Exec(claudePath, []string{"claude", "--resume", id}, os.Environ())
+	return syscall.Exec(binPath, args, os.Environ())
 }

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/sorafujitani/ccsession/internal/ansi"
-	"github.com/sorafujitani/ccsession/internal/grep"
 	"github.com/sorafujitani/ccsession/internal/session"
+	"github.com/sorafujitani/ccsession/internal/source"
 	"github.com/sorafujitani/ccsession/internal/timefmt"
 )
 
@@ -34,7 +34,11 @@ func Run(opts Options) error {
 	if opts.Out == nil {
 		opts.Out = os.Stdout
 	}
-	sessions, err := loadSessions(opts.Grep, opts.Regex)
+	src, err := source.FromEnv()
+	if err != nil {
+		return err
+	}
+	sessions, err := loadSessions(src, opts.Grep, opts.Regex)
 	if err != nil {
 		return err
 	}
@@ -106,18 +110,18 @@ func filterOutByDir(sessions []*session.Session, needle string) []*session.Sessi
 	return out
 }
 
-func loadSessions(query string, regex bool) ([]*session.Session, error) {
+func loadSessions(src source.Source, query string, regex bool) ([]*session.Session, error) {
 	if query == "" {
-		return session.Scan()
+		return src.Scan()
 	}
-	allow, err := grep.Filter(query, grep.Options{Regex: regex})
+	allow, err := src.GrepKeys(query, regex)
 	if err != nil {
 		return nil, err
 	}
 	if len(allow) == 0 {
 		return nil, nil
 	}
-	return session.ScanFiltered(allow)
+	return src.ScanFiltered(allow)
 }
 
 func formatLine(s *session.Session, now time.Time, color bool) string {

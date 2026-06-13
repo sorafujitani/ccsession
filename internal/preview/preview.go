@@ -13,6 +13,7 @@ import (
 
 	"github.com/sorafujitani/ccsession/internal/ansi"
 	"github.com/sorafujitani/ccsession/internal/session"
+	"github.com/sorafujitani/ccsession/internal/source"
 	"github.com/sorafujitani/ccsession/internal/timefmt"
 )
 
@@ -48,7 +49,11 @@ type messageItem struct {
 
 // Run writes the preview pane content for a given session id to stdout.
 func Run(id string, opts Options) error {
-	s, err := session.FindByID(id)
+	src, err := source.FromEnv()
+	if err != nil {
+		return err
+	}
+	s, err := src.FindByID(id)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionFileMissing) {
 			return fmt.Errorf("session not found: %s", id)

@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Tool の抽象化 — ccsession Source インターフェース設計手引</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;700;800&family=IBM+Plex+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #faf6ef;
+    --paper-deep: #f2ecdf;
+    --ink: #1f1d18;
+    --ink-soft: #555044;
+    --ink-faint: #8a8374;
+    --vermilion: #c2401c;
+    --vermilion-soft: #e8d5c8;
+    --term-bg: #181f1b;
+    --term-fg: #cfe3d2;
+    --term-green: #7ec88f;
+    --term-amber: #e0b765;
+    --term-dim: #6d7f72;
+    --rule: #d8cfbd;
+    --mincho: "Shippori Mincho", "Hiragino Mincho ProN", serif;
+    --gothic: "IBM Plex Sans JP", "Hiragino Kaku Gothic ProN", sans-serif;
+    --mono: "IBM Plex Mono", "Menlo", monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; scroll-padding-top: 2rem; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--gothic);
+    font-size: 16px;
+    line-height: 1.95;
+    font-feature-settings: "palt";
+    /* 紙の粒子 */
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.42 0 0 0 0 0.36 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  ::selection { background: var(--vermilion); color: var(--paper); }
+
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 1.5rem 6rem;
+  }
+
+  /* ---------- ヒーロー ---------- */
+  header.hero {
+    position: relative;
+    padding: 5.5rem 0 3.5rem;
+    border-bottom: 3px double var(--ink);
+    margin-bottom: 3rem;
+  }
+  .hero .kicker {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.22em;
+    color: var(--vermilion);
+    margin-bottom: 1.6rem;
+  }
+  .hero .kicker::before { content: "// "; color: var(--ink-faint); }
+  .hero h1 {
+    font-family: var(--mincho);
+    font-weight: 800;
+    font-size: clamp(2.1rem, 6vw, 3.4rem);
+    line-height: 1.35;
+    letter-spacing: 0.04em;
+  }
+  .hero h1 em {
+    font-style: normal;
+    color: var(--vermilion);
+  }
+  .hero .sub {
+    margin-top: 1.4rem;
+    max-width: 34em;
+    color: var(--ink-soft);
+    font-size: 0.95rem;
+  }
+  .hero .tate {
+    position: absolute;
+    top: 5.2rem;
+    right: 0;
+    writing-mode: vertical-rl;
+    font-family: var(--mincho);
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.45em;
+    color: var(--ink-faint);
+    border-right: 1px solid var(--rule);
+    padding-right: 0.7rem;
+    height: 13em;
+  }
+  .hero .meta {
+    margin-top: 2.2rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+    display: flex;
+    gap: 2em;
+    flex-wrap: wrap;
+  }
+  @media (max-width: 640px) { .hero .tate { display: none; } }
+
+  /* ---------- 目次 ---------- */
+  nav.toc {
+    margin: 0 0 4.5rem;
+    padding: 1.6rem 1.8rem 1.8rem;
+    background: var(--paper-deep);
+    border: 1px solid var(--rule);
+  }
+  nav.toc .toc-title {
+    font-family: var(--mincho);
+    font-weight: 700;
+    font-size: 0.95rem;
+    letter-spacing: 0.35em;
+    margin-bottom: 1rem;
+    color: var(--ink);
+  }
+  nav.toc ol {
+    list-style: none;
+    columns: 2;
+    column-gap: 2.5rem;
+    font-size: 0.86rem;
+  }
+  @media (max-width: 560px) { nav.toc ol { columns: 1; } }
+  nav.toc li { break-inside: avoid; padding: 0.28em 0; }
+  nav.toc a {
+    color: var(--ink-soft);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--rule);
+  }
+  nav.toc a:hover { color: var(--vermilion); border-bottom-color: var(--vermilion); }
+  nav.toc .n {
+    font-family: var(--mono);
+    color: var(--vermilion);
+    font-size: 0.75rem;
+    margin-right: 0.6em;
+  }
+
+  /* ---------- 章 ---------- */
+  section.chapter { margin-top: 5rem; }
+  .chap-head {
+    display: flex;
+    align-items: baseline;
+    gap: 1.1rem;
+    border-bottom: 1px solid var(--ink);
+    padding-bottom: 0.7rem;
+    margin-bottom: 2.2rem;
+  }
+  .chap-head .num {
+    font-family: var(--mincho);
+    font-weight: 800;
+    font-size: 3.2rem;
+    line-height: 1;
+    color: var(--vermilion);
+  }
+  .chap-head h2 {
+    font-family: var(--mincho);
+    font-weight: 700;
+    font-size: 1.55rem;
+    letter-spacing: 0.06em;
+  }
+  .chap-head .en {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.18em;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  @media (max-width: 560px) { .chap-head .en { display: none; } }
+
+  h3 {
+    font-family: var(--mincho);
+    font-weight: 700;
+    font-size: 1.18rem;
+    margin: 3rem 0 1rem;
+    letter-spacing: 0.05em;
+  }
+  h3 .sec {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 0.8rem;
+    color: var(--vermilion);
+    margin-right: 0.8em;
+    vertical-align: 0.12em;
+  }
+  h4 {
+    font-family: var(--gothic);
+    font-weight: 700;
+    font-size: 0.95rem;
+    margin: 2rem 0 0.6rem;
+  }
+
+  p { margin: 0.9rem 0; }
+  p + p { text-indent: 1em; }
+  strong { font-weight: 700; }
+  em { font-style: normal; background: linear-gradient(transparent 68%, var(--vermilion-soft) 68%); }
+
+  ul.plain, ol.plain { margin: 0.8rem 0 0.8rem 1.4rem; }
+  ul.plain li, ol.plain li { margin: 0.4rem 0; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.84em;
+    background: var(--paper-deep);
+    border: 1px solid var(--rule);
+    padding: 0.08em 0.4em;
+    border-radius: 2px;
+    word-break: break-all;
+  }
+
+  /* ---------- ターミナル風コードブロック ---------- */
+  .term {
+    background: var(--term-bg);
+    color: var(--term-fg);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.75;
+    padding: 1.3rem 1.5rem;
+    margin: 1.6rem 0;
+    overflow-x: auto;
+    border-radius: 4px;
+    box-shadow: 4px 4px 0 var(--vermilion-soft);
+    position: relative;
+  }
+  .term::before {
+    content: attr(data-label);
+    position: absolute;
+    top: 0; right: 0;
+    font-size: 0.62rem;
+    letter-spacing: 0.15em;
+    color: var(--term-dim);
+    background: rgba(255,255,255,0.04);
+    padding: 0.25em 0.9em;
+    border-bottom-left-radius: 4px;
+  }
+  .term pre { margin: 0; font-family: inherit; }
+  .term .c   { color: var(--term-dim); }      /* コメント */
+  .term .k   { color: var(--term-amber); }    /* キーワード */
+  .term .g   { color: var(--term-green); }    /* 識別子強調 */
+  .term .v   { color: #d98f7e; }              /* 値・文字列 */
+
+  /* ---------- コールアウト ---------- */
+  .callout {
+    margin: 1.8rem 0;
+    padding: 1.1rem 1.4rem 1.2rem;
+    border-left: 4px solid var(--vermilion);
+    background: var(--paper-deep);
+  }
+  .callout .label {
+    font-family: var(--mincho);
+    font-weight: 700;
+    font-size: 0.82rem;
+    letter-spacing: 0.3em;
+    color: var(--vermilion);
+    display: block;
+    margin-bottom: 0.4rem;
+  }
+  .callout p { margin: 0.3rem 0; font-size: 0.93rem; }
+  .callout.trap { border-left-color: var(--ink); }
+  .callout.trap .label { color: var(--ink); }
+  .callout.trap .label::before { content: "⚠ "; }
+
+  /* ---------- 表 ---------- */
+  .tbl-wrap { overflow-x: auto; margin: 1.6rem 0; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.85rem;
+    line-height: 1.7;
+  }
+  table caption {
+    caption-side: top;
+    text-align: left;
+    font-family: var(--mincho);
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.1em;
+    padding-bottom: 0.5rem;
+    color: var(--ink-soft);
+  }
+  th {
+    font-family: var(--mincho);
+    font-weight: 700;
+    text-align: left;
+    border-top: 2px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    padding: 0.5em 0.9em;
+    white-space: nowrap;
+  }
+  td {
+    border-bottom: 1px solid var(--rule);
+    padding: 0.55em 0.9em;
+    vertical-align: top;
+  }
+  td code { white-space: nowrap; }
+  tr:last-child td { border-bottom: 2px solid var(--ink); }
+
+  /* ---------- ステップ見出し ---------- */
+  .step {
+    margin-top: 3.4rem;
+    counter-increment: step;
+  }
+  .step > .step-head {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    margin-bottom: 1rem;
+  }
+  .step > .step-head .badge {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    color: var(--paper);
+    background: var(--ink);
+    padding: 0.35em 0.8em;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .step > .step-head h3 { margin: 0; }
+
+  /* ---------- 図 ---------- */
+  figure { margin: 2.2rem 0; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption {
+    font-size: 0.78rem;
+    color: var(--ink-faint);
+    margin-top: 0.6rem;
+    font-family: var(--mono);
+    letter-spacing: 0.05em;
+  }
+  figcaption::before { content: "図 "; color: var(--vermilion); }
+
+  /* ---------- チェックリスト ---------- */
+  ol.checklist {
+    list-style: none;
+    counter-reset: chk;
+    margin: 1.5rem 0;
+  }
+  ol.checklist li {
+    counter-increment: chk;
+    position: relative;
+    padding: 0.9rem 0 0.9rem 3.2rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  ol.checklist li::before {
+    content: counter(chk, decimal-leading-zero);
+    position: absolute;
+    left: 0; top: 0.95rem;
+    font-family: var(--mincho);
+    font-weight: 800;
+    font-size: 1.25rem;
+    color: var(--vermilion);
+  }
+  ol.checklist li strong { font-family: var(--mincho); }
+  ol.checklist li .q {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    margin-top: 0.15rem;
+  }
+
+  /* ---------- フッター ---------- */
+  footer {
+    margin-top: 6rem;
+    padding-top: 1.4rem;
+    border-top: 3px double var(--ink);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: space-between;
+    gap: 1.5em;
+    flex-wrap: wrap;
+  }
+
+  /* ---------- 出現アニメーション ---------- */
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.7s ease, transform 0.7s ease; }
+  .reveal.shown { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ================= ヒーロー ================= -->
+<header class="hero">
+  <p class="kicker">ccsession design notes / issue #48</p>
+  <h1>Agent Tool を<br><em>抽象化</em>する。</h1>
+  <p class="sub">
+    Claude Code 専用だった CLI ツール ccsession に OpenCode 対応を加える——
+    その題材を通して、「特定のコーディングエージェントに依存したツールを、
+    エージェント非依存に抽象化する」設計手法を、前提知識から順に解説する。
+  </p>
+  <span class="tate">設計手引・全四章</span>
+  <div class="meta">
+    <span>base: .claude/plans/issue-48-opencode-support.md</span>
+    <span>2026-06-12</span>
+  </div>
+</header>
+
+<!-- ================= 目次 ================= -->
+<nav class="toc reveal">
+  <div class="toc-title">目　次</div>
+  <ol>
+    <li><span class="n">1.1</span><a href="#s11">ccsession のアーキテクチャ</a></li>
+    <li><span class="n">1.2</span><a href="#s12">2つのエージェントの保存形式</a></li>
+    <li><span class="n">1.3</span><a href="#s13">Go の interface と依存性逆転</a></li>
+    <li><span class="n">1.4</span><a href="#s14">抽象化の2つの罠</a></li>
+    <li><span class="n">2.1</span><a href="#step1">Step 1 — 共通の「動詞」を抽出する</a></li>
+    <li><span class="n">2.2</span><a href="#step2">Step 2 — 共通データモデルを決める</a></li>
+    <li><span class="n">2.3</span><a href="#step3">Step 3 — 粒度を絞る</a></li>
+    <li><span class="n">2.4</span><a href="#step4">Step 4 — 漏れを仕様で管理する</a></li>
+    <li><span class="n">2.5</span><a href="#step5">Step 5 — 切り替え機構</a></li>
+    <li><span class="n">2.6</span><a href="#step6">Step 6 — 段階的移行</a></li>
+    <li><span class="n">2.7</span><a href="#step7">Step 7 — 失敗の封じ込め</a></li>
+    <li><span class="n">3</span><a href="#chap3">図解 — 全体像</a></li>
+    <li><span class="n">4</span><a href="#chap4">一般化チェックリスト</a></li>
+  </ol>
+</nav>
+
+<!-- ================= 第1章 ================= -->
+<section class="chapter reveal" id="chap1">
+  <div class="chap-head">
+    <span class="num">一</span>
+    <h2>前提知識</h2>
+    <span class="en">Prerequisites</span>
+  </div>
+
+  <p>
+    抽象化の設計は、抽象化される側の<strong>具体的な事情</strong>を知らずには評価できない。
+    まず ccsession がどう動いているか、そして Claude Code と OpenCode が
+    セッションをどう保存しているかを押さえる。
+  </p>
+
+  <h3 id="s11"><span class="sec">1.1</span>ccsession のアーキテクチャ — 再帰サブプロセスモデル</h3>
+
+  <p>
+    ccsession は「<code>claude --resume</code> の fzf フロントエンド」で、実体は1つの Go バイナリに
+    4つの顔がある。
+  </p>
+
+  <ul class="plain">
+    <li><code>ccsession list</code> — セッション一覧を <strong>TSV 行</strong>として標準出力に吐く</li>
+    <li><code>ccsession preview &lt;id&gt;</code> — 1セッションのプレビュー（直近30メッセージ）を描画する</li>
+    <li><code>ccsession resume &lt;id&gt;</code> — 元の cwd に <code>chdir</code> して <code>claude --resume</code> に <code>exec</code> する</li>
+    <li><code>ccsession</code>（引数なし） — bash スクリプトを生成して fzf TUI を起動する</li>
+  </ul>
+
+  <p>
+    重要なのは4つめだ。fzf TUI の中では、プレビュー表示やインクリメンタル grep のたびに
+    <em>ccsession が自分自身をサブプロセスとして再帰的に呼び出す</em>。
+  </p>
+
+  <div class="term" data-label="cmd/ccsession/main.go（抜粋・簡略化）">
+<pre><span class="c"># fzf に渡される bash スクリプトの骨格</span>
+id=$(<span class="g">"$CCSESSION_BIN" list</span> --color=always | fzf \
+  --preview <span class="v">"$CCSESSION_BIN preview --query {q} {1}"</span> \
+  --bind <span class="v">"change:reload($CCSESSION_BIN list --grep {q})"</span> \
+  | awk -F'\t' '{print $1}')
+[ -n "$id" ] &amp;&amp; exec <span class="g">"$CCSESSION_BIN" resume "$id"</span></pre>
+  </div>
+
+  <div class="callout">
+    <span class="label">含　意</span>
+    <p>
+      親プロセス（fzf を起動した ccsession）から子プロセス（reload / preview / resume で呼ばれる
+      ccsession）へ状態を渡す経路は、<strong>環境変数しかない</strong>。
+      「いまどのエージェントのセッションを見ているか」という状態も、
+      env で運ぶしかない。これが抽象化設計の最初の制約になる。
+      既存コードには前例がある: <code>--exclude-dir</code> フラグは
+      <code>CCSESSION_EXCLUDE_DIR</code> という env に変換されて子に継承される。
+    </p>
+  </div>
+
+  <h4>fzf 5列タブ契約</h4>
+  <p>
+    <code>list</code> が吐く TSV は、列の位置に意味が固定されている。
+    fzf は <code>--with-nth=3,4,5</code> で後ろ3列だけを表示し、選択結果からは列1（ID）だけを取り出す。
+  </p>
+
+  <div class="term" data-label="list の出力契約">
+<pre><span class="g">ID</span> \t <span class="g">epoch</span> \t <span class="g">相対時刻</span> \t <span class="g">dir名</span> \t <span class="g">ラベル</span>
+<span class="c">└ 列1: resume に渡る  └ 列3〜5: fzf が表示・検索する</span></pre>
+  </div>
+
+  <p>
+    つまり、<em>どのエージェント由来のセッションであっても、この5列に変換できれば
+    fzf まわりの UI は一切変えずに済む</em>。逆に、タブや改行を含む値が紛れ込めば
+    契約ごと壊れる。データの出どころが増えるとき、まず守るべき境界はここだ。
+  </p>
+
+  <h3 id="s12"><span class="sec">1.2</span>2つのエージェントのセッション保存形式</h3>
+
+  <p>
+    抽象化対象である2つの agent tool は、セッションの保存方法がまるで違う。
+  </p>
+
+  <div class="tbl-wrap">
+  <table>
+    <caption>保存形式の対比</caption>
+    <tr><th></th><th>Claude Code</th><th>OpenCode（v1.2.0+）</th></tr>
+    <tr>
+      <td><strong>置き場所</strong></td>
+      <td><code>~/.claude/projects/&lt;proj&gt;/&lt;uuid&gt;.jsonl</code></td>
+      <td><code>~/.local/share/opencode/opencode.db</code></td>
+    </tr>
+    <tr>
+      <td><strong>形式</strong></td>
+      <td>JSONL（追記型ログ、1行 = 1イベント）</td>
+      <td>SQLite（WAL モード、<code>session</code> / <code>session_message</code> テーブル）</td>
+    </tr>
+    <tr>
+      <td><strong>一覧の取り方</strong></td>
+      <td>ディレクトリ走査 + 各ファイルの末尾パース（並列）</td>
+      <td><code>SELECT ... ORDER BY time_updated DESC</code> 1本</td>
+    </tr>
+    <tr>
+      <td><strong>ID の形</strong></td>
+      <td>UUID（= ファイル名）</td>
+      <td><code>ses_</code> プレフィックスの文字列</td>
+    </tr>
+    <tr>
+      <td><strong>時刻</strong></td>
+      <td>ISO 8601 文字列</td>
+      <td>epoch ミリ秒（<code>Date.now()</code> 由来）</td>
+    </tr>
+    <tr>
+      <td><strong>grep の単位</strong></td>
+      <td>ファイルを開いて全行スキャン</td>
+      <td>SQL の LIKE で粗く絞り、Go 側で確定マッチ</td>
+    </tr>
+    <tr>
+      <td><strong>再開コマンド</strong></td>
+      <td><code>claude --resume &lt;id&gt;</code></td>
+      <td><code>opencode --session &lt;id&gt;</code></td>
+    </tr>
+  </table>
+  </div>
+
+  <div class="callout">
+    <span class="label">観　察</span>
+    <p>
+      「ファイル群を歩く」と「DB に問い合わせる」——実装はまったく似ていない。
+      しかし<strong>ユーザーがやりたいこと</strong>は同じだ:
+      セッションを<em>一覧し</em>、<em>中身を覗き</em>、<em>絞り込み</em>、<em>選んで再開する</em>。
+      抽象化の手がかりは常に、実装の類似ではなく<strong>ユースケースの同一性</strong>にある。
+    </p>
+  </div>
+
+  <p>
+    なお OpenCode の DB は稼働中のアプリと併読することになるため、読み取りは
+    read-only 接続（<code>mode=ro</code> + <code>busy_timeout</code>）で行う。
+    また Go から SQLite を読むのに cgo を使うと、ccsession の
+    「<code>CGO_ENABLED=0</code> で4ターゲットをクロスコンパイルする」配布パイプラインが
+    壊れるため、純 Go ドライバ（ncruces/go-sqlite3）を選ぶ——
+    <em>抽象化の選択は、ビルド・配布の制約からも逆算される</em>。
+  </p>
+
+  <h3 id="s13"><span class="sec">1.3</span>Go の interface と依存性逆転</h3>
+
+  <p>
+    Go の interface は「このメソッド群を持っていれば、それはこの型である」という
+    <strong>構造的型付け</strong>で、実装側は宣言不要で interface を満たす。
+    抽象化で使うのはこの一点だけだ。
+  </p>
+
+  <div class="term" data-label="依存の向きが変わる">
+<pre><span class="c">── Before: 呼び出し側が具象に直接依存 ──</span>
+list / preview / resume ──→ internal/session <span class="c">(JSONL 決め打ち)</span>
+
+<span class="c">── After: 呼び出し側は抽象にだけ依存（依存性逆転）──</span>
+list / preview / resume ──→ <span class="k">interface Source</span>
+                              ↑ 満たす        ↑ 満たす
+                       claudeSource      opencodeSource
+                       <span class="c">(JSONL 走査)</span>      <span class="c">(SQLite SELECT)</span></pre>
+  </div>
+
+  <p>
+    呼び出し側（<code>list.Run</code> や <code>resume.Run</code>）は「セッションをくれる何か」
+    としか知らなくなり、JSONL なのか SQLite なのかは interface の向こう側に隠れる。
+    3つめのエージェントが来ても、呼び出し側は変更ゼロで済む——これが狙いだ。
+  </p>
+
+  <h3 id="s14"><span class="sec">1.4</span>抽象化の2つの罠</h3>
+
+  <div class="callout trap">
+    <span class="label">罠　一 — 漏れる抽象（Leaky Abstraction）</span>
+    <p>
+      どんな抽象も、下の実装の都合をどこかで漏らす。「漏れをゼロにする」のは不可能で、
+      目指すべきは<strong>漏れる場所を予見し、仕様として文書化しておく</strong>こと。
+      無自覚な漏れだけが事故になる（Step 4 で実例を見る）。
+    </p>
+  </div>
+
+  <div class="callout trap">
+    <span class="label">罠　二 — 早すぎる抽象化（Premature Abstraction）</span>
+    <p>
+      「将来 N 個のエージェントに対応するかも」とプラグイン機構や動的レジストリを
+      作り込むと、2例しかないのに 10 例分の複雑さを背負う。
+      <strong>具体例が2つ揃った今このとき</strong>が抽象化の適齢期であり、
+      抽象は2例が実際に要求する範囲に絞る（Step 3）。
+      間違った抽象より重複のほうが安い、という格言を忘れないこと。
+    </p>
+  </div>
+</section>
+
+<!-- ================= 第2章 ================= -->
+<section class="chapter reveal" id="chap2">
+  <div class="chap-head">
+    <span class="num">二</span>
+    <h2>抽象化の手順 — 七つのステップ</h2>
+    <span class="en">The Seven Steps</span>
+  </div>
+
+  <p>
+    ここからが本題。ccsession の <code>Source</code> インターフェース設計を、
+    再現可能な手順に分解する。各ステップは「原則」と「ccsession での実例」の対で進む。
+  </p>
+
+  <!-- Step 1 -->
+  <div class="step" id="step1">
+    <div class="step-head">
+      <span class="badge">STEP 1</span>
+      <h3>共通の「動詞」を抽出する</h3>
+    </div>
+    <div class="callout">
+      <span class="label">原　則</span>
+      <p>インターフェースは実装の共通部分からではなく、<strong>ユースケースの動詞</strong>から作る。「ファイルを読む」は動詞ではない。「セッションを一覧する」が動詞だ。</p>
+    </div>
+    <p>
+      両エージェントに共通する操作を、UI が要求する順に列挙すると5つに収まる:
+    </p>
+    <ul class="plain">
+      <li><strong>発見する</strong> — 全セッションを新しい順に列挙（→ <code>Scan</code>）</li>
+      <li><strong>絞り込む</strong> — 本文を検索してマッチした集合を得る（→ <code>GrepKeys</code> + <code>ScanFiltered</code>）</li>
+      <li><strong>特定する</strong> — ID から1セッションを引く（→ <code>FindByID</code>）</li>
+      <li><strong>中身を見る</strong> — ヘッダ情報と直近メッセージを得る（→ <code>Messages</code>）</li>
+      <li><strong>再開する</strong> — 実行すべきコマンドを知る（→ <code>ResumeSpec</code>）</li>
+    </ul>
+    <p>これがそのまま interface になる:</p>
+    <div class="term" data-label="internal/source/source.go">
+<pre><span class="k">type</span> <span class="g">Source</span> <span class="k">interface</span> {
+    Name() <span class="k">string</span>                       <span class="c">// "claude" | "opencode"</span>
+    Scan() ([]*session.Session, <span class="k">error</span>)
+    ScanFiltered(allow <span class="k">map</span>[<span class="k">string</span>]<span class="k">struct</span>{}) ([]*session.Session, <span class="k">error</span>)
+    FindByID(id <span class="k">string</span>) (*session.Session, <span class="k">error</span>)
+    GrepKeys(query <span class="k">string</span>, regex <span class="k">bool</span>) (<span class="k">map</span>[<span class="k">string</span>]<span class="k">struct</span>{}, <span class="k">error</span>)
+    Messages(s *session.Session, max <span class="k">int</span>) (Header, []Message, <span class="k">error</span>)
+    ResumeSpec(s *session.Session) (bin <span class="k">string</span>, args []<span class="k">string</span>, err <span class="k">error</span>)
+}</pre>
+    </div>
+    <p>
+      逆に、<em>片方にしか意味のない操作は interface に入れない</em>。
+      「JSONL のパスを返す」「SQL を実行する」のような実装語彙が顔を出したら、
+      動詞の抽出をやり直すサインだ。
+    </p>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="step" id="step2">
+    <div class="step-head">
+      <span class="badge">STEP 2</span>
+      <h3>共通データモデルを決める</h3>
+    </div>
+    <div class="callout">
+      <span class="label">原　則</span>
+      <p>新しい共通型をゼロから作る前に、<strong>既存の型がすでに「表示に必要な最小集合」を定義していないか</strong>を疑う。下流の契約（ここでは fzf 5列）が型を規定しているなら、それに乗るのが最短で安全。</p>
+    </div>
+    <p>
+      ccsession の既存 <code>Session</code> 型は fzf 5列契約のために絞られた構造体で、
+      OpenCode のデータもそのまま流し込める。新フィールドは <code>Source string</code> の1つだけ。
+    </p>
+    <div class="tbl-wrap">
+    <table>
+      <caption>OpenCode → 既存 Session 型へのマッピング</caption>
+      <tr><th>Session フィールド</th><th>OpenCode 由来</th><th>注意点</th></tr>
+      <tr><td><code>ID</code></td><td><code>session.id</code></td><td>タブ・改行を含まないか検証（DB 由来値を信用しない）</td></tr>
+      <tr><td><code>CWD</code></td><td><code>session.directory</code></td><td>空文字 → <code>CWDUnknown</code> → resume 拒否</td></tr>
+      <tr><td><code>Label</code></td><td><code>session.title</code></td><td>必ず <code>SanitizeLabel</code>（制御文字除去）を通す</td></tr>
+      <tr><td><code>LastEpoch</code></td><td><code>time_updated</code></td><td>ミリ秒 → 秒変換。未来時刻は沈める（既存ロジック共用）</td></tr>
+      <tr><td><code>JSONLPath</code></td><td>—（空）</td><td>OpenCode 経路はファイルに到達しない</td></tr>
+      <tr><td><code>Source</code>（新規）</td><td><code>"opencode"</code> 固定</td><td>resume 分岐のキー</td></tr>
+    </table>
+    </div>
+    <p>
+      注目すべきは <em>埋められないフィールドの扱いを決めている</em>こと
+      （<code>JSONLPath</code> は空）と、<em>境界でのデータ検証</em>
+      （サニタイズ・ミリ秒変換）を新ソース側の責務にしていること。
+      共通型に流し込む時点で、データはもう「出どころ不明の外部入力」ではなく
+      「契約を満たした内部データ」になっていなければならない。
+    </p>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="step" id="step3">
+    <div class="step-head">
+      <span class="badge">STEP 3</span>
+      <h3>粒度を絞る — やらないことを決める</h3>
+    </div>
+    <div class="callout">
+      <span class="label">原　則</span>
+      <p>抽象は「いま具体例が2つあること」だけを根拠に設計する。共通化できる処理は interface の<strong>外側</strong>（呼び出し側）に残し、差分だけを interface の内側に置く。</p>
+    </div>
+    <p>
+      好例が <code>ResumeSpec</code> だ。「resume を<em>実行する</em>」メソッドにはせず、
+      「実行すべきコマンドを<em>返す</em>」だけにしている。
+    </p>
+    <div class="term" data-label="resume の共通部と差分の切り分け">
+<pre><span class="c">── interface の外（全ソース共通の処理）──</span>
+cwd の存在検証 → os.Chdir(s.CWD) → syscall.Exec(bin, args, env)
+
+<span class="c">── interface の中（ソースごとの差分のみ）──</span>
+claude  : bin=<span class="v">"claude"</span>,   args=[<span class="v">"claude"</span>, <span class="v">"--resume"</span>,  id]
+opencode: bin=<span class="v">"opencode"</span>, args=[<span class="v">"opencode"</span>, <span class="v">"--session"</span>, id]</pre>
+    </div>
+    <p>
+      「元のディレクトリに戻ってから再開する」という ccsession の UX 原則は
+      エージェントに依存しない共通の価値なので、外側に1回だけ書く。
+      差分は「コマンド名とフラグ」という<strong>データ</strong>に圧縮された。
+    </p>
+    <p>同じ理由で、明示的に<strong>やらない</strong>と決めたものがある:</p>
+    <ul class="plain">
+      <li><strong>プラグイン機構</strong> — 動的ロードもレジストリも作らない。3例目が来たら struct を1つ足すだけ</li>
+      <li><strong>fzf 内でのソース切替</strong> — TUI の状態機械が複雑化する。起動時に1ソース固定</li>
+      <li><strong>既存パッケージのリネーム・移動</strong> — <code>internal/session</code> はそのまま。リファクタ範囲を最小化して Claude 側のリグレッションを構造的に防ぐ</li>
+    </ul>
+  </div>
+
+  <!-- Step 4 -->
+  <div class="step" id="step4">
+    <div class="step-head">
+      <span class="badge">STEP 4</span>
+      <h3>抽象の漏れを「仕様」で管理する</h3>
+    </div>
+    <div class="callout">
+      <span class="label">原　則</span>
+      <p>漏れは消せない。<strong>名前を間違えないこと</strong>と、<strong>暗黙の挙動を明文化すること</strong>で無害化する。</p>
+    </div>
+    <h4>実例① — 「ID」という名前の嘘</h4>
+    <p>
+      grep の結果（マッチしたセッションの集合）を <code>ScanFiltered</code> に渡して
+      絞り込み一覧を作る。この集合のキーを当初 <code>GrepIDs</code>（ID の集合）と
+      名付けていたが、これは嘘だった。既存の Claude 実装はマッチ結果を
+      <em>JSONL ファイルパスの集合</em>で受け渡ししているからだ。
+    </p>
+    <div class="term" data-label="キー空間はソースごとに違う">
+<pre>claude  の GrepKeys → { <span class="v">"/home/u/.claude/projects/a/uuid.jsonl"</span>, ... } <span class="c">// パス</span>
+opencode の GrepKeys → { <span class="v">"ses_8f2k..."</span>, ... }                       <span class="c">// ID</span></pre>
+    </div>
+    <p>
+      「ID の集合を返す」と契約に書いた瞬間、Claude 実装はパス→ID 変換を強いられ、
+      「既存コードを無変更で委譲する」という移行戦略（Step 6）と矛盾する。
+      解決は名前と仕様の修正だ: キーは <em>Source 内部で閉じた opaque トークン</em>とし、
+      <code>GrepKeys</code> → <code>ScanFiltered</code> の間でのみ受け渡し、外には意味を漏らさない——
+      と契約に明記する。<strong>漏れを塞ぐのではなく、漏れの形を正確に記述した</strong>。
+    </p>
+    <h4>実例② — 暗黙の区別を仕様に昇格させる</h4>
+    <p>
+      既存コードには「<code>nil</code> = フィルタなし」「空 map = マッチゼロ」という
+      区別が<em>偶然</em>成立していた。抽象化はこの暗黙の挙動を契約として明文化する
+      好機になる。放置すれば、2つめの実装が偶然を再現し損ねてバグになる。
+    </p>
+    <h4>実例③ — 見た目もまた契約である</h4>
+    <p>
+      プレビューのヘッダには「開始時刻がゼロ値なら最終時刻で代用」「メッセージの
+      時刻不明は <code>--:--</code> と表示」といった細かい挙動がある。
+      これらは実装の癖に見えるが、ユーザーが目にする以上<strong>保存すべきセマンティクス</strong>だ。
+      <code>Header</code> / <code>Message</code> という共通契約に吸収し、
+      どのソースでも同じ見た目になることをテストで担保する。
+    </p>
+  </div>
+
+  <!-- Step 5 -->
+  <div class="step" id="step5">
+    <div class="step-head">
+      <span class="badge">STEP 5</span>
+      <h3>切り替え機構 — flag → env → サブプロセス</h3>
+    </div>
+    <div class="callout">
+      <span class="label">原　則</span>
+      <p>切り替えは <strong>opt-in</strong>（指定がなければ完全に従来挙動）とし、状態の伝播はアーキテクチャの制約（1.1 の再帰サブプロセスモデル）に素直に従う。</p>
+    </div>
+    <div class="term" data-label="CLI の見え方">
+<pre>ccsession                      <span class="c"># 従来どおり Claude Code（挙動変更ゼロ）</span>
+ccsession <span class="g">--source=opencode</span>    <span class="c"># OpenCode セッションの fzf UI</span>
+ccsession <span class="g">--opencode</span>           <span class="c"># 糖衣（Issue 提案との互換）</span></pre>
+    </div>
+    <p>伝播の流れはこうなる:</p>
+    <div class="term" data-label="env 伝播チェーン">
+<pre>① フラグ解析     --source=opencode
+② env 化        os.Setenv(<span class="v">"CCSESSION_SOURCE"</span>, <span class="v">"opencode"</span>)
+③ fzf 起動      cmd.Env = os.Environ() + ...   <span class="c">// 子に自動継承</span>
+④ 再帰呼び出し   list / preview / resume が
+                <span class="g">FromEnv()</span> で同じ Source を復元する</pre>
+    </div>
+    <p>
+      ここにも設計判断が3つ埋まっている。
+      <strong>デフォルトは既存挙動に固定</strong>（後方互換）。
+      <strong>不正値は黙ってフォールバックせずエラー</strong>
+      （<code>CCSESSION_SOURCE=opencodee</code> のような typo が無言で Claude 表示に
+      化けると、ユーザーは「OpenCode のセッションが消えた」と誤認する）。
+      <strong>矛盾指定（<code>--opencode --source=claude</code>）は exit 2</strong>。
+      切り替え機構の品質は、正常系ではなく誤入力時の挙動で決まる。
+    </p>
+  </div>
+
+  <!-- Step 6 -->
+  <div class="step" id="step6">
+    <div class="step-head">
+      <span class="badge">STEP 6</span>
+      <h3>段階的移行 — Strangler Fig パターン</h3>
+    </div>
+    <div class="callout">
+      <span class="label">原　則</span>
+      <p>「抽象層の導入」と「新実装の追加」を<strong>同じ PR でやらない</strong>。前者は挙動変更ゼロのリファクタとして単独で出し、機械的に検証できる完了条件を付ける。</p>
+    </div>
+    <div class="tbl-wrap">
+    <table>
+      <caption>PR 分割と完了条件</caption>
+      <tr><th>PR</th><th>内容</th><th>検証可能な完了条件</th></tr>
+      <tr>
+        <td><strong>PR1</strong></td>
+        <td>Source 層導入 + 既存実装を委譲で包む + CI 安全網（4ターゲットビルド検証）</td>
+        <td>既存テストを<strong>1行も変えず</strong> green。全コマンド出力が変更前と<strong>バイト一致</strong></td>
+      </tr>
+      <tr>
+        <td><strong>PR2</strong></td>
+        <td>SQLite ドライバ追加 + opencode 実装 + フラグ + テスト一式</td>
+        <td>一覧 → preview → grep → resume がエンドツーエンドで動く</td>
+      </tr>
+      <tr>
+        <td><strong>PR3</strong></td>
+        <td>README / usage 文言 / 手動 smoke チェックリスト</td>
+        <td>ドキュメント整合</td>
+      </tr>
+    </table>
+    </div>
+    <h4>委譲ラッパという安全装置</h4>
+    <p>
+      PR1 では既存の <code>grep.Filter</code> 関数の中身を claudeSource へ移すが、
+      <code>grep.Filter</code> 自体は<strong>新実装へ委譲するだけの殻として残す</strong>。
+      理由は単純で、既存テストが11箇所この関数を直接呼んでいるからだ。
+      関数を消せば「既存テスト無修正で green」という PR1 の完了条件が成立しなくなる。
+      古い入口を残して中身だけ差し替える——絞め殺しの木（strangler fig）が
+      宿主を覆っていくように、旧構造を生かしたまま新構造に移行する。
+    </p>
+    <div class="callout trap">
+      <span class="label">注　意</span>
+      <p>
+        「挙動変更ゼロ」は願望ではなく<strong>検証手順</strong>とセットで初めて意味を持つ。
+        既存テスト無修正 green、出力のバイト一致比較、CI でのクロスコンパイル検証——
+        どれも機械が判定できる。「たぶん変わってない」を人間の感覚に委ねないこと。
+      </p>
+    </div>
+  </div>
+
+  <!-- Step 7 -->
+  <div class="step" id="step7">
+    <div class="step-head">
+      <span class="badge">STEP 7</span>
+      <h3>失敗の封じ込め — 新ソースの障害を伝染させない</h3>
+    </div>
+    <div class="callout">
+      <span class="label">原　則</span>
+      <p>抽象化で複数実装を束ねた瞬間、<strong>一方の障害がもう一方の機能を巻き込む経路</strong>ができる。新実装の失敗モードを列挙し、それぞれを「新実装の機能だけが劣化する」形に封じる。</p>
+    </div>
+    <ul class="plain">
+      <li>
+        <strong>起動前検査（preflight）</strong> — fzf の TUI に入ってからのエラーは
+        ユーザーに見えない（alternate screen の中で stderr が消える）。
+        だから DB の解決・存在検査は <em>fzf を起動する前</em>に行い、
+        失敗ならふつうの端末にエラーを出して終了する。
+      </li>
+      <li>
+        <strong>劣化モード</strong> — メッセージが1件も読めなくても、プレビューは
+        ヘッダ + <code>(messages unavailable: 理由)</code> を出す。
+        エラーで真っ赤になるのではなく、読めた範囲を見せる。
+      </li>
+      <li>
+        <strong>復旧手順つきエラー</strong> — OpenCode が将来スキーマを変えて
+        クエリが失敗したら、「DB のスキーマ版数がこの ccsession の理解より新しい/古い。
+        ccsession を更新するか issue を立ててほしい」と<em>次の一手</em>まで添えて、
+        OpenCode 機能だけを落とす。Claude 側は無傷で動き続ける。
+      </li>
+      <li>
+        <strong>誘導</strong> — <code>ses_</code> で始まる ID を <code>--source</code> なしで
+        resume しようとしたら「<code>--source=opencode</code> のことでは？」と提案する。
+        抽象化でモードが増えたぶん、ユーザーの迷子も増える。その分の道標を足す。
+      </li>
+    </ul>
+    <p>
+      外部ツールのデータ形式に依存するということは、<em>こちらの都合と無関係に
+      壊れる未来を予約する</em>ということだ。封じ込めの設計は、その未来への保険である。
+    </p>
+  </div>
+</section>
+
+<!-- ================= 第3章 ================= -->
+<section class="chapter reveal" id="chap3">
+  <div class="chap-head">
+    <span class="num">三</span>
+    <h2>図解 — 全体像</h2>
+    <span class="en">The Big Picture</span>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 760 470" role="img" aria-label="抽象化前後のアーキテクチャ比較図" font-family="IBM Plex Mono, monospace">
+      <!-- BEFORE -->
+      <text x="0" y="22" font-size="13" font-weight="600" fill="#c2401c" letter-spacing="3">BEFORE</text>
+      <line x1="64" y1="17" x2="760" y2="17" stroke="#d8cfbd" stroke-width="1"/>
+      <rect x="20" y="44" width="200" height="80" fill="none" stroke="#1f1d18" stroke-width="1.5"/>
+      <text x="120" y="76" font-size="12" fill="#1f1d18" text-anchor="middle">list / preview /</text>
+      <text x="120" y="96" font-size="12" fill="#1f1d18" text-anchor="middle">resume / fzf TUI</text>
+      <line x1="220" y1="84" x2="300" y2="84" stroke="#1f1d18" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <rect x="304" y="44" width="200" height="80" fill="#f2ecdf" stroke="#1f1d18" stroke-width="1.5"/>
+      <text x="404" y="76" font-size="12" fill="#1f1d18" text-anchor="middle">internal/session</text>
+      <text x="404" y="96" font-size="11" fill="#8a8374" text-anchor="middle">JSONL 決め打ち</text>
+      <line x1="504" y1="84" x2="584" y2="84" stroke="#1f1d18" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="596" y="80" font-size="11" fill="#555044">~/.claude/projects/</text>
+      <text x="596" y="98" font-size="11" fill="#555044">**/*.jsonl</text>
+
+      <!-- AFTER -->
+      <text x="0" y="186" font-size="13" font-weight="600" fill="#c2401c" letter-spacing="3">AFTER</text>
+      <line x1="58" y1="181" x2="760" y2="181" stroke="#d8cfbd" stroke-width="1"/>
+      <rect x="20" y="208" width="200" height="80" fill="none" stroke="#1f1d18" stroke-width="1.5"/>
+      <text x="120" y="240" font-size="12" fill="#1f1d18" text-anchor="middle">list / preview /</text>
+      <text x="120" y="260" font-size="12" fill="#1f1d18" text-anchor="middle">resume / fzf TUI</text>
+      <line x1="220" y1="248" x2="300" y2="248" stroke="#1f1d18" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="260" y="238" font-size="10" fill="#8a8374" text-anchor="middle">抽象にのみ依存</text>
+
+      <rect x="304" y="208" width="200" height="80" fill="none" stroke="#c2401c" stroke-width="2" stroke-dasharray="7 4"/>
+      <text x="404" y="240" font-size="12" fill="#c2401c" text-anchor="middle" font-weight="600">interface Source</text>
+      <text x="404" y="260" font-size="10" fill="#c2401c" text-anchor="middle">Scan / GrepKeys / Messages / ResumeSpec</text>
+
+      <!-- 実装2つ -->
+      <line x1="404" y1="288" x2="220" y2="350" stroke="#1f1d18" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <line x1="404" y1="288" x2="588" y2="350" stroke="#1f1d18" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="290" y="318" font-size="10" fill="#8a8374">満たす</text>
+      <text x="492" y="318" font-size="10" fill="#8a8374">満たす</text>
+
+      <rect x="60" y="354" width="240" height="86" fill="#f2ecdf" stroke="#1f1d18" stroke-width="1.5"/>
+      <text x="180" y="382" font-size="12" fill="#1f1d18" text-anchor="middle" font-weight="600">claudeSource</text>
+      <text x="180" y="402" font-size="10.5" fill="#555044" text-anchor="middle">既存 internal/session へ薄く委譲</text>
+      <text x="180" y="420" font-size="10.5" fill="#8a8374" text-anchor="middle">ロジック変更なし（PR1）</text>
+
+      <rect x="460" y="354" width="240" height="86" fill="#f2ecdf" stroke="#1f1d18" stroke-width="1.5"/>
+      <text x="580" y="382" font-size="12" fill="#1f1d18" text-anchor="middle" font-weight="600">opencodeSource</text>
+      <text x="580" y="402" font-size="10.5" fill="#555044" text-anchor="middle">internal/opencode — 純 Go SQLite</text>
+      <text x="580" y="420" font-size="10.5" fill="#8a8374" text-anchor="middle">read-only / WAL 併読（PR2）</text>
+
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f1d18"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>1 — 依存性逆転の前後。呼び出し側は Source という抽象にだけ依存し、保存形式の知識は各実装に閉じる。</figcaption>
+  </figure>
+
+  <figure>
+    <svg viewBox="0 0 760 320" role="img" aria-label="環境変数によるソース指定の伝播シーケンス" font-family="IBM Plex Mono, monospace">
+      <!-- レーン -->
+      <text x="90" y="20" font-size="11.5" fill="#1f1d18" text-anchor="middle" font-weight="600">ユーザー</text>
+      <text x="320" y="20" font-size="11.5" fill="#1f1d18" text-anchor="middle" font-weight="600">ccsession（親）</text>
+      <text x="600" y="20" font-size="11.5" fill="#1f1d18" text-anchor="middle" font-weight="600">fzf → ccsession（子）</text>
+      <line x1="90" y1="30" x2="90" y2="300" stroke="#d8cfbd" stroke-width="1"/>
+      <line x1="320" y1="30" x2="320" y2="300" stroke="#d8cfbd" stroke-width="1"/>
+      <line x1="600" y1="30" x2="600" y2="300" stroke="#d8cfbd" stroke-width="1"/>
+
+      <line x1="90" y1="56" x2="316" y2="56" stroke="#1f1d18" stroke-width="1.3" marker-end="url(#arrow2)"/>
+      <text x="100" y="48" font-size="10.5" fill="#555044">ccsession --source=opencode</text>
+
+      <rect x="230" y="74" width="180" height="30" fill="#c2401c" rx="2"/>
+      <text x="320" y="93" font-size="10" fill="#faf6ef" text-anchor="middle">setenv CCSESSION_SOURCE</text>
+
+      <rect x="230" y="116" width="180" height="30" fill="#f2ecdf" stroke="#1f1d18"/>
+      <text x="320" y="135" font-size="10" fill="#1f1d18" text-anchor="middle">preflight: DB 解決・検査</text>
+      <text x="424" y="135" font-size="9.5" fill="#8a8374">失敗なら TUI 前に exit 1</text>
+
+      <line x1="320" y1="170" x2="596" y2="170" stroke="#1f1d18" stroke-width="1.3" marker-end="url(#arrow2)"/>
+      <text x="334" y="162" font-size="10.5" fill="#555044">fzf 起動（env 自動継承）</text>
+
+      <line x1="600" y1="206" x2="600" y2="206" stroke="none"/>
+      <rect x="488" y="194" width="224" height="58" fill="none" stroke="#1f1d18" stroke-width="1.2"/>
+      <text x="600" y="214" font-size="10" fill="#1f1d18" text-anchor="middle">キー入力ごとに再帰呼び出し</text>
+      <text x="600" y="231" font-size="9.5" fill="#555044" text-anchor="middle">ccsession list --grep {q} / preview {1}</text>
+      <text x="600" y="246" font-size="9.5" fill="#c2401c" text-anchor="middle">→ FromEnv() で同じ Source を復元</text>
+
+      <line x1="600" y1="282" x2="324" y2="282" stroke="#1f1d18" stroke-width="1.3" marker-end="url(#arrow2)"/>
+      <text x="350" y="274" font-size="10.5" fill="#555044">enter → exec ccsession resume ses_xxx → exec opencode --session</text>
+
+      <defs>
+        <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f1d18"/>
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>2 — ソース指定の伝播。フラグは env に変換され、fzf 経由の再帰呼び出し全てに自動で行き渡る。</figcaption>
+  </figure>
+</section>
+
+<!-- ================= 第4章 ================= -->
+<section class="chapter reveal" id="chap4">
+  <div class="chap-head">
+    <span class="num">四</span>
+    <h2>一般化チェックリスト</h2>
+    <span class="en">Generalization Checklist</span>
+  </div>
+
+  <p>
+    ccsession の事例を離れて、「特定ツール依存のソフトウェアを複数ツール対応に
+    抽象化する」あらゆる場面に使える問いとして整理する。
+  </p>
+
+  <ol class="checklist">
+    <li>
+      <strong>具体例は2つ以上あるか。</strong>
+      <span class="q">1例での抽象化は推測でしかない。2例目が来てから、2例が実際に要求する範囲だけを抽象化する。</span>
+    </li>
+    <li>
+      <strong>インターフェースは「動詞」で書けているか。</strong>
+      <span class="q">実装語彙（ファイル、SQL、パス）が署名に現れていたら、ユースケースからやり直す。</span>
+    </li>
+    <li>
+      <strong>下流の契約が共通データモデルを既に規定していないか。</strong>
+      <span class="q">表示・出力フォーマット（ccsession なら fzf 5列）が要求する最小集合に乗れるなら、新しい共通型は不要。</span>
+    </li>
+    <li>
+      <strong>共通処理は抽象の外側に残したか。</strong>
+      <span class="q">差分を「データ」（コマンド名・フラグ）まで圧縮できれば、interface のメソッドは減る。</span>
+    </li>
+    <li>
+      <strong>漏れる抽象に正直な名前と仕様を与えたか。</strong>
+      <span class="q">「ID」が実はパスかもしれない。opaque にすべきものを opaque と明記し、nil と空の区別のような暗黙挙動を契約に昇格させる。</span>
+    </li>
+    <li>
+      <strong>切り替えは opt-in で、誤入力時にエラーになるか。</strong>
+      <span class="q">デフォルトは完全に従来挙動。typo の無言フォールバックは「データが消えた」という誤認を生む。</span>
+    </li>
+    <li>
+      <strong>「抽象層の導入」と「新実装の追加」を別 PR に分けたか。</strong>
+      <span class="q">前者は挙動変更ゼロ + 機械検証可能な完了条件（既存テスト無修正 green / 出力バイト一致）で隔離する。古い入口は委譲ラッパとして残す。</span>
+    </li>
+    <li>
+      <strong>新実装の障害は新実装の機能だけを落とすか。</strong>
+      <span class="q">preflight・劣化モード・復旧手順つきエラー。外部ツールのデータ形式は、こちらの都合と無関係に変わる前提で設計する。</span>
+    </li>
+  </ol>
+
+  <p>
+    抽象化とは、共通点を見つけて喜ぶ作業ではない。
+    <em>違いをどこに閉じ込め、漏れをどう名指しし、移行をどう検証可能にするか</em>——
+    その3つの規律の別名である。
+  </p>
+</section>
+
+<footer>
+  <span>ccsession / docs / agent-tool-abstraction</span>
+  <span>source: .claude/plans/issue-48-opencode-support.md</span>
+</footer>
+
+</div>
+
+<script>
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) { e.target.classList.add('shown'); io.unobserve(e.target); }
+    }
+  }, { threshold: 0.06 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+</script>
+</body>
+</html>
