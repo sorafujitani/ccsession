@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 
 	"github.com/sorafujitani/ccsession/internal/session"
@@ -21,6 +22,10 @@ func Run(id string) error {
 	s, err := src.FindByID(id)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionFileMissing) {
+			if strings.HasPrefix(id, "ses_") && src.Name() != "opencode" {
+				return fmt.Errorf("session not found: %s "+
+					"(this looks like an OpenCode id — did you mean --source=opencode?)", id)
+			}
 			return fmt.Errorf("session not found: %s", id)
 		}
 		if errors.Is(err, session.ErrSessionEmpty) {

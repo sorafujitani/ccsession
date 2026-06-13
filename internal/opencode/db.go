@@ -3,6 +3,7 @@ package opencode
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -129,6 +130,47 @@ func candidateDirs(getenv func(string) string, goos string) []string {
 func fileExists(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && !fi.IsDir()
+}
+
+// Preflight resolves and opens the database before the TUI launches, so a
+// missing DB, a pre-SQLite (legacy JSON) install, or an unreadable file fails
+// on the normal terminal with an actionable message instead of invisibly
+// inside fzf.
+func Preflight() error {
+	path, probed, err := ResolveDBPath()
+	if err == nil {
+		db, oerr := openAt(path)
+		if oerr != nil {
+			return oerr
+		}
+		defer db.Close()
+		rows, qerr := db.query("SELECT 1")
+		if qerr != nil {
+			return fmt.Errorf("opencode database at %s is unreadable: %w", path, qerr)
+		}
+		rows.Close()
+		return nil
+	}
+	if !errors.Is(err, ErrDBNotFound) {
+		return err
+	}
+	if legacy := legacyDirs(probed); len(legacy) > 0 {
+		return fmt.Errorf("OpenCode v1.2.0+ (SQLite storage) is required, but only a legacy "+
+			"JSON layout was found under %s; ccsession does not read it", strings.Join(legacy, ", "))
+	}
+	return fmt.Errorf("opencode database not found; probed: %s (legacy data may remain under storage/)",
+		strings.Join(probed, ", "))
+}
+
+// legacyDirs reports which probed locations hold a pre-v1.2.0 storage/ tree.
+func legacyDirs(probed []string) []string {
+	var out []string
+	for _, d := range probed {
+		if fi, err := os.Stat(filepath.Join(d, "storage")); err == nil && fi.IsDir() {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // escapeLike neutralizes LIKE wildcards in a literal; pair with `LIKE ? ESCAPE '\'`.

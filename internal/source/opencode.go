@@ -1,6 +1,7 @@
 package source
 
 import (
+	"os"
 	"time"
 
 	"github.com/sorafujitani/ccsession/internal/opencode"
@@ -17,6 +18,16 @@ func newOpencodeSource() (Source, error) {
 		return nil, err
 	}
 	return opencodeSource{db: db}, nil
+}
+
+// Preflight validates the selected backend before the TUI launches; errors
+// raised inside fzf are invisible. Only opencode has a failure mode worth
+// catching early (missing/legacy/unreadable DB); claude is always ready.
+func Preflight() error {
+	if os.Getenv(EnvVar) == nameOpencode {
+		return opencode.Preflight()
+	}
+	return nil
 }
 
 func (opencodeSource) Name() string { return nameOpencode }

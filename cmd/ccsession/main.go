@@ -343,6 +343,11 @@ func runDefault(flagBinds config.Keybindings) error {
 	if _, err := exec.LookPath("fzf"); err != nil {
 		return fmt.Errorf("fzf is required but not found in PATH")
 	}
+	// Resolve the backend before fzf starts; a DB error raised inside the TUI
+	// would be invisible to the user.
+	if err := source.Preflight(); err != nil {
+		return err
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return err
