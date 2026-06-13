@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/ncruces/go-sqlite3 v0.35.0
+	pgregory.net/rapid v1.3.0
 )
 
 require (
