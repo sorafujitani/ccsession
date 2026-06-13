@@ -35,6 +35,14 @@ type Session struct {
 	Source string
 }
 
+// Message is one rendered transcript turn, the unit the preview pane displays.
+// Sources that don't store a JSONL transcript (OpenCode) produce these directly.
+type Message struct {
+	Role      string
+	Timestamp time.Time
+	Body      string
+}
+
 // entry is the union shape of every JSONL line in a Claude transcript.
 type entry struct {
 	Type       string        `json:"type"`
