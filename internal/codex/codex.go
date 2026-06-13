@@ -89,7 +89,7 @@ func (s *Store) FindByID(id string) (*session.Session, error) {
 		return nil, err
 	}
 	for _, path := range paths {
-		sess, _, _, _, err := parseFile(path, false)
+		sess, _, _, _, err := parseFile(path, false, 0)
 		if err != nil || sess == nil {
 			continue
 		}
@@ -114,7 +114,7 @@ func (s *Store) GrepKeys(query string, regex bool) (map[string]struct{}, error) 
 	}
 	set := make(map[string]struct{})
 	for _, path := range paths {
-		sess, msgs, _, _, err := parseFile(path, true)
+		sess, _, _, _, err := parseFile(path, false, 0)
 		if err != nil || sess == nil {
 			continue
 		}
@@ -122,11 +122,12 @@ func (s *Store) GrepKeys(query string, regex bool) (map[string]struct{}, error) 
 			set[sess.ID] = struct{}{}
 			continue
 		}
-		for _, m := range msgs {
-			if match(m.Body) {
-				set[sess.ID] = struct{}{}
-				break
-			}
+		ok, err := fileMessagesMatch(path, match)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			set[sess.ID] = struct{}{}
 		}
 	}
 	return set, nil
@@ -137,12 +138,9 @@ func (s *Store) Messages(sessionID string, limit int) ([]session.Message, time.T
 	if err != nil {
 		return nil, time.Time{}, 0, err
 	}
-	_, msgs, startedAt, total, err := parseFile(sess.JSONLPath, true)
+	_, msgs, startedAt, total, err := parseFile(sess.JSONLPath, true, limit)
 	if err != nil {
 		return nil, time.Time{}, 0, err
-	}
-	if limit > 0 && len(msgs) > limit {
-		msgs = msgs[len(msgs)-limit:]
 	}
 	return msgs, startedAt, total, nil
 }
@@ -153,11 +151,16 @@ func (s *Store) scanFiltered(allow map[string]struct{}) ([]*session.Session, err
 		return nil, err
 	}
 	out := make([]*session.Session, 0, len(paths))
+	seen := make(map[string]struct{})
 	for _, path := range paths {
-		sess, _, _, _, err := parseFile(path, false)
+		sess, _, _, _, err := parseFile(path, false, 0)
 		if err != nil || sess == nil || !allowed(allow, sess.ID) {
 			continue
 		}
+		if _, ok := seen[sess.ID]; ok {
+			continue
+		}
+		seen[sess.ID] = struct{}{}
 		out = append(out, sess)
 	}
 	nowEpoch := time.Now().Unix()
@@ -193,7 +196,7 @@ func (s *Store) sessionPaths() ([]string, error) {
 	return paths, err
 }
 
-func parseFile(path string, includeMessages bool) (*session.Session, []session.Message, time.Time, int, error) {
+func parseFile(path string, includeMessages bool, messageLimit int) (*session.Session, []session.Message, time.Time, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -255,7 +258,7 @@ func parseFile(path string, includeMessages bool) (*session.Session, []session.M
 				label = msg.Body
 			}
 			if includeMessages {
-				msgs = append(msgs, msg)
+				msgs = appendMessage(msgs, msg, total, messageLimit)
 			}
 			total++
 		}
@@ -284,7 +287,7 @@ func parseFile(path string, includeMessages bool) (*session.Session, []session.M
 	}
 	sess.LastTime = lastTS
 	sess.LastEpoch = lastTS.Unix()
-	return sess, msgs, startedAt, total, nil
+	return sess, collectMessages(msgs, total, messageLimit), startedAt, total, nil
 }
 
 func parseMessagePayload(raw json.RawMessage, ts time.Time) (session.Message, bool) {
@@ -296,10 +299,76 @@ func parseMessagePayload(raw json.RawMessage, ts time.Time) (session.Message, bo
 		return session.Message{}, false
 	}
 	body := extractContent(p.Content)
+	if p.Role == "user" {
+		body = userVisibleBody(body)
+	}
 	if strings.TrimSpace(body) == "" {
 		return session.Message{}, false
 	}
 	return session.Message{Role: p.Role, Timestamp: ts, Body: body}, true
+}
+
+func fileMessagesMatch(path string, match func(string) bool) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	hit := false
+	err = scanJSONLLines(f, func(line []byte) {
+		if hit {
+			return
+		}
+		var e entry
+		if err := json.Unmarshal(line, &e); err != nil || e.Type != "response_item" {
+			return
+		}
+		msg, ok := parseMessagePayload(e.Payload, time.Time{})
+		if ok && match(msg.Body) {
+			hit = true
+		}
+	})
+	return hit, err
+}
+
+func appendMessage(msgs []session.Message, msg session.Message, total, limit int) []session.Message {
+	if limit <= 0 {
+		return append(msgs, msg)
+	}
+	if len(msgs) < limit {
+		return append(msgs, msg)
+	}
+	msgs[total%limit] = msg
+	return msgs
+}
+
+func collectMessages(msgs []session.Message, total, limit int) []session.Message {
+	if limit <= 0 || total <= limit || len(msgs) == 0 {
+		return msgs
+	}
+	out := make([]session.Message, 0, len(msgs))
+	start := total % limit
+	for i := range len(msgs) {
+		out = append(out, msgs[(start+i)%limit])
+	}
+	return out
+}
+
+func userVisibleBody(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	if strings.HasPrefix(body, "# AGENTS.md instructions for ") ||
+		strings.Contains(body, "\n<INSTRUCTIONS>") ||
+		strings.HasPrefix(body, "<environment_context>") ||
+		strings.HasPrefix(body, "<system_reminder>") {
+		return ""
+	}
+	if _, after, ok := strings.Cut(body, "## My request for Codex:\n"); ok {
+		return strings.TrimSpace(after)
+	}
+	return body
 }
 
 func extractContent(raw json.RawMessage) string {
