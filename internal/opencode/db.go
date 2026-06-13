@@ -92,6 +92,11 @@ func resolveDBPath(getenv func(string) string, goos string) (string, []string, e
 	// An explicit path wins outright; a set-but-missing value is still an
 	// error so a stale OPENCODE_DB surfaces instead of silently falling back.
 	if explicit := getenv(EnvDBPath); explicit != "" {
+		// Absolute-ize so the file: URI can't misread a relative path's first
+		// segment as a URI authority (host); ignore Abs errors and use as-is.
+		if abs, err := filepath.Abs(explicit); err == nil {
+			explicit = abs
+		}
 		if fileExists(explicit) {
 			return explicit, []string{explicit}, nil
 		}

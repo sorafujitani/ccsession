@@ -79,7 +79,8 @@ func buildSessions(rows *sql.Rows, allow map[string]struct{}, now time.Time) ([]
 		if ki != kj {
 			return ki > kj
 		}
-		return out[i].ID > out[j].ID
+		// Deterministic tiebreak so future-sunk entries don't shuffle.
+		return out[i].ID < out[j].ID
 	})
 	return out, nil
 }
@@ -104,12 +105,13 @@ func newSession(id, title, dir string, timeUpdatedMs int64) *session.Session {
 	return s
 }
 
-// sortEpoch clamps a future timestamp to now for ordering, so a clock-skewed or
-// bogus future time_updated can't pin a session to the top of the list. Mirrors
-// the claude scan's identically-named helper.
+// sortEpoch sinks a future timestamp to the bottom for ordering, so a
+// clock-skewed or bogus future time_updated can't pin a session to the top of
+// the list. Mirrors the claude scan's identically-named helper (returns 0 for
+// the future, not now, so future-dated sessions sort last).
 func sortEpoch(epoch, nowEpoch int64) int64 {
 	if epoch > nowEpoch {
-		return nowEpoch
+		return 0
 	}
 	return epoch
 }
