@@ -13,8 +13,8 @@ import (
 // A LIKE prefilter narrows the candidate sessions before the authoritative
 // Go-side match. It is only an optimization, so it must never drop a real
 // match: prefilterUsable disables it whenever LIKE could diverge from the
-// matcher (regex, JSON-escapable chars, or non-ASCII case-folding), in which
-// case every root session is matched directly.
+// matcher (regex, JSON-escapable chars, or a case fold the ASCII-only LIKE
+// can't reproduce), in which case every root session is matched directly.
 func (d *DB) GrepKeys(query string, regex bool) (map[string]struct{}, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
@@ -100,6 +100,14 @@ func (d *DB) sessionMatches(r rootRow, match func(string) bool) (bool, error) {
 	return false, nil
 }
 
+// asciiFoldTargets are the ASCII letters a non-ASCII rune lower-cases onto
+// (U+0130 İ → 'i', U+212A KELVIN SIGN → 'k'). The matcher folds case with
+// Unicode rules, but SQLite's LIKE folds only ASCII A–Z, so a query holding one
+// of these letters can match a haystack through its non-ASCII source while the
+// prefilter, seeing only raw bytes, misses it — dropping a real match.
+// TestAsciiFoldTargetsExact proves this set is neither short nor long.
+const asciiFoldTargets = "ik"
+
 func prefilterUsable(query string, regex bool) bool {
 	if regex {
 		return false
@@ -110,7 +118,13 @@ func prefilterUsable(query string, regex bool) bool {
 	if strings.ContainsAny(query, "\"\\\n\r") {
 		return false
 	}
-	return isASCII(query)
+	if !isASCII(query) {
+		return false
+	}
+	// A non-ASCII haystack rune can lower-case onto an ASCII letter the query
+	// holds, which the ASCII-only LIKE fold can't see; bypass the prefilter so
+	// such a match isn't dropped.
+	return !strings.ContainsAny(strings.ToLower(query), asciiFoldTargets)
 }
 
 func isASCII(s string) bool {
