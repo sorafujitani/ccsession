@@ -5,10 +5,19 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sorafujitani/ccsession/internal/opencode"
 	"github.com/sorafujitani/ccsession/internal/session"
 )
 
 func TestFromEnv_SelectsBackend(t *testing.T) {
+	// opencode resolves its DB from OPENCODE_DB; point it at a real file so the
+	// backend constructs (the file isn't opened until first query).
+	db := filepath.Join(t.TempDir(), "opencode.db")
+	if err := os.WriteFile(db, nil, 0o644); err != nil {
+		t.Fatalf("write db: %v", err)
+	}
+	t.Setenv(opencode.EnvDBPath, db)
+
 	cases := []struct {
 		env      string
 		wantName string
@@ -16,9 +25,9 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 	}{
 		{"", "claude", false},
 		{"claude", "claude", false},
+		{"opencode", "opencode", false},
 		// An unknown value is an error, not a silent fall back to claude:
 		// a typo must surface, not quietly show the wrong agent's sessions.
-		{"opencode", "", true},
 		{"clauded", "", true},
 	}
 	for _, c := range cases {

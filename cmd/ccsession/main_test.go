@@ -1,21 +1,23 @@
 package main
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/sorafujitani/ccsession/internal/config"
+	"github.com/sorafujitani/ccsession/internal/source"
 )
 
 // TestBuildScriptDefaults guards against tokenization drift: with default
 // keys the script must keep the original header and binds, preserve the
 // start/change wiring, and leave no __CCS_BIND_*__ token unsubstituted.
 func TestBuildScriptDefaults(t *testing.T) {
-	got := buildScript(config.Defaults())
+	got := buildScript(config.Defaults(), "claude")
 
 	wants := []string{
-		`--header='ctrl-g: grep / ctrl-o: dir / ctrl-f: fuzzy / enter: resume'`,
+		`--header='[claude] ctrl-g: grep / ctrl-o: dir / ctrl-f: fuzzy / enter: resume'`,
 		`--bind 'start:unbind(change)'`,
 		`--bind "change:reload(sleep 0.05;`,
 		`--bind "ctrl-g:transform:echo \"change-prompt(grep> )`,
@@ -35,10 +37,10 @@ func TestBuildScriptDefaults(t *testing.T) {
 // TestBuildScriptCustom verifies resolved keys reach the header and binds and
 // that the defaults they replace are gone.
 func TestBuildScriptCustom(t *testing.T) {
-	got := buildScript(config.Keybindings{Grep: "ctrl-r", Dir: "alt-d", Fuzzy: "alt-f"})
+	got := buildScript(config.Keybindings{Grep: "ctrl-r", Dir: "alt-d", Fuzzy: "alt-f"}, "opencode")
 
 	wants := []string{
-		`--header='ctrl-r: grep / alt-d: dir / alt-f: fuzzy / enter: resume'`,
+		`--header='[opencode] ctrl-r: grep / alt-d: dir / alt-f: fuzzy / enter: resume'`,
 		`--bind "ctrl-r:transform:echo \"change-prompt(grep> )`,
 		`--bind "alt-d:transform:echo \"change-prompt(dir> )`,
 		`--bind "alt-f:transform:echo \"change-prompt(> )`,
@@ -84,6 +86,23 @@ func TestParseGlobalFlags(t *testing.T) {
 			wantGF:   globalFlags{binds: config.Keybindings{Grep: "ctrl-r"}},
 			wantRest: []string{"resume", "abc123"},
 		},
+		{
+			name:   "source equals form",
+			args:   []string{"--source=opencode"},
+			wantGF: globalFlags{source: "opencode"},
+		},
+		{
+			name:   "source space form",
+			args:   []string{"--source", "opencode"},
+			wantGF: globalFlags{source: "opencode"},
+		},
+		{
+			name:   "opencode sugar takes no value",
+			args:   []string{"--opencode", "list"},
+			wantGF: globalFlags{opencode: true},
+			// "list" is the subcommand, not a value consumed by --opencode.
+			wantRest: []string{"list"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,6 +112,43 @@ func TestParseGlobalFlags(t *testing.T) {
 			}
 			if !reflect.DeepEqual(rest, tc.wantRest) {
 				t.Errorf("parseGlobalFlags(%v) rest = %v, want %v", tc.args, rest, tc.wantRest)
+			}
+		})
+	}
+}
+
+func TestApplySource(t *testing.T) {
+	cases := []struct {
+		name    string
+		gf      globalFlags
+		env     string // pre-set CCSESSION_SOURCE
+		wantErr bool
+		wantEnv string // CCSESSION_SOURCE after applySource
+	}{
+		{name: "default claude leaves env empty", wantEnv: ""},
+		{name: "opencode sugar", gf: globalFlags{opencode: true}, wantEnv: "opencode"},
+		{name: "source flag", gf: globalFlags{source: "opencode"}, wantEnv: "opencode"},
+		{name: "sugar agrees with source", gf: globalFlags{opencode: true, source: "opencode"}, wantEnv: "opencode"},
+		{name: "sugar contradicts source", gf: globalFlags{opencode: true, source: "claude"}, wantErr: true},
+		{name: "unknown source flag", gf: globalFlags{source: "bogus"}, wantErr: true},
+		{name: "inherited env is validated", env: "bogus", wantErr: true},
+		{name: "inherited valid env survives", env: "opencode", wantEnv: "opencode"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(source.EnvVar, tc.env)
+			err := applySource(tc.gf)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("applySource(%+v) = nil, want error", tc.gf)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("applySource(%+v): %v", tc.gf, err)
+			}
+			if got := os.Getenv(source.EnvVar); got != tc.wantEnv {
+				t.Errorf("CCSESSION_SOURCE = %q, want %q", got, tc.wantEnv)
 			}
 		})
 	}

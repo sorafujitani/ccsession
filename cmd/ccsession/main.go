@@ -14,6 +14,7 @@ import (
 	"github.com/sorafujitani/ccsession/internal/list"
 	"github.com/sorafujitani/ccsession/internal/preview"
 	"github.com/sorafujitani/ccsession/internal/resume"
+	"github.com/sorafujitani/ccsession/internal/source"
 )
 
 // excludeDirEnv is the env var that pipes --exclude-dir down to subcommands
@@ -66,13 +67,19 @@ func init() {
 const usage = `ccsession - fzf frontend for "claude --resume"
 
 USAGE:
-  ccsession [--exclude-dir <s>]                       # list -> fzf -> resume
+  ccsession [--source <s>] [--exclude-dir <s>]        # list -> fzf -> resume
   ccsession list [--grep Q] [--exclude-dir S]         # TSV rows for fzf
   ccsession preview <sessionId>   # preview pane content
-  ccsession resume  <sessionId>   # chdir to original cwd, exec claude --resume
-  ccsession --help | --version
+  ccsession resume  <sessionId>   # chdir to original cwd, exec the agent
+
+  Global flags go before the subcommand (parsing stops at the first
+  non-flag argument).
 
 GLOBAL FLAGS:
+  --source <s>        session backend: claude (default) | opencode. Inherited
+                      by the picker's reload/preview/resume re-invocations via
+                      CCSESSION_SOURCE.
+  --opencode          shorthand for --source=opencode
   --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive).
                       Applied to every list call, including grep/dir/fuzzy
                       reloads, so the matching directories never appear in
@@ -139,6 +146,10 @@ func main() {
 		// to the fzf bash script (defaultScriptTmpl reads it directly).
 		os.Setenv(excludeDirEnv, gf.excludeDir)
 	}
+	if err := applySource(gf); err != nil {
+		fmt.Fprintln(os.Stderr, "ccsession:", err)
+		os.Exit(2)
+	}
 	if len(args) == 0 {
 		if err := runDefault(gf.binds); err != nil {
 			fmt.Fprintln(os.Stderr, "ccsession:", err)
@@ -174,7 +185,34 @@ func main() {
 
 type globalFlags struct {
 	excludeDir string
+	source     string
+	opencode   bool
 	binds      config.Keybindings
+}
+
+// applySource folds --opencode / --source into the CCSESSION_SOURCE env var so
+// every subcommand and fzf re-invocation resolves the same backend. It rejects
+// a contradictory --opencode --source=claude and any unknown source name; both
+// are exit-2 usage errors. A value inherited from the environment (a re-invoked
+// fzf child) is validated too, so a typo can't slip through as the default.
+func applySource(gf globalFlags) error {
+	name := gf.source
+	if gf.opencode {
+		if name != "" && name != "opencode" {
+			return fmt.Errorf("--opencode conflicts with --source=%s", name)
+		}
+		name = "opencode"
+	}
+	if name == "" {
+		name = os.Getenv(source.EnvVar)
+	}
+	if !source.ValidName(name) {
+		return fmt.Errorf("unknown source %q (valid: %s)", name, strings.Join(source.Names(), ", "))
+	}
+	if name != "" {
+		os.Setenv(source.EnvVar, name)
+	}
+	return nil
 }
 
 // parseGlobalFlags peels off ccsession-level flags (both `--flag value` and
@@ -183,6 +221,7 @@ type globalFlags struct {
 func parseGlobalFlags(args []string) (gf globalFlags, rest []string) {
 	dst := map[string]*string{
 		"--exclude-dir": &gf.excludeDir,
+		"--source":      &gf.source,
 		"--bind-grep":   &gf.binds.Grep,
 		"--bind-dir":    &gf.binds.Dir,
 		"--bind-fuzzy":  &gf.binds.Fuzzy,
@@ -191,6 +230,12 @@ func parseGlobalFlags(args []string) (gf globalFlags, rest []string) {
 next:
 	for i < len(args) {
 		a := args[i]
+		// --opencode is sugar for --source=opencode and takes no value.
+		if a == "--opencode" {
+			gf.opencode = true
+			i++
+			continue next
+		}
 		for name, p := range dst {
 			if a == name {
 				if i+1 >= len(args) {
@@ -298,6 +343,11 @@ func runDefault(flagBinds config.Keybindings) error {
 	if _, err := exec.LookPath("fzf"); err != nil {
 		return fmt.Errorf("fzf is required but not found in PATH")
 	}
+	// Resolve the backend before fzf starts; a DB error raised inside the TUI
+	// would be invisible to the user.
+	if err := source.Preflight(); err != nil {
+		return err
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -316,7 +366,7 @@ func runDefault(flagBinds config.Keybindings) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("bash", "-c", buildScript(kb))
+	cmd := exec.Command("bash", "-c", buildScript(kb, sourceLabel()))
 	cmd.Env = append(os.Environ(), "CCSESSION_BIN="+self)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -324,14 +374,23 @@ func runDefault(flagBinds config.Keybindings) error {
 	return cmd.Run()
 }
 
-// buildScript fills defaultScriptTmpl's __CCS_BIND_*__ tokens with the
-// resolved keys. NewReplacer (not Sprintf/template) leaves the script's bash
-// %q escapes, $vars and {q} placeholders untouched.
-func buildScript(kb config.Keybindings) string {
+// sourceLabel is the backend shown in the picker header, defaulting to claude.
+func sourceLabel() string {
+	if s := os.Getenv(source.EnvVar); s != "" {
+		return s
+	}
+	return "claude"
+}
+
+// buildScript fills defaultScriptTmpl's __CCS_BIND_*__ and __CCS_SOURCE__
+// tokens. NewReplacer (not Sprintf/template) leaves the script's bash %q
+// escapes, $vars and {q} placeholders untouched.
+func buildScript(kb config.Keybindings, src string) string {
 	return strings.NewReplacer(
 		"__CCS_BIND_GREP__", kb.Grep,
 		"__CCS_BIND_DIR__", kb.Dir,
 		"__CCS_BIND_FUZZY__", kb.Fuzzy,
+		"__CCS_SOURCE__", src,
 	).Replace(defaultScriptTmpl)
 }
 
@@ -379,7 +438,7 @@ id=$("$CCSESSION_BIN" list --color=always "${exclude_args[@]+"${exclude_args[@]}
   --color='hl:-1:reverse,hl+:-1:reverse' \
   --preview "$CCSESSION_BIN preview --query {q} {1}" \
   --preview-window=right,60%,wrap \
-  --header='__CCS_BIND_GREP__: grep / __CCS_BIND_DIR__: dir / __CCS_BIND_FUZZY__: fuzzy / enter: resume' \
+  --header='[__CCS_SOURCE__] __CCS_BIND_GREP__: grep / __CCS_BIND_DIR__: dir / __CCS_BIND_FUZZY__: fuzzy / enter: resume' \
   --bind 'start:unbind(change)' \
   --bind "change:reload(sleep 0.05; $CCSESSION_BIN list --color=always $exclude_arg --grep {q})" \
   --bind "__CCS_BIND_GREP__:transform:echo \"change-prompt(grep> )+disable-search+reload(sleep 0.05; $CCSESSION_BIN list --color=always $exclude_arg --grep {q})+rebind(change)\"" \

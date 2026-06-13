@@ -29,7 +29,7 @@ func Filter(query string, opts Options) (map[string]struct{}, error) {
 		return nil, nil
 	}
 
-	match, err := buildMatcher(query, opts)
+	match, err := BuildMatcher(query, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,11 @@ func Filter(query string, opts Options) (map[string]struct{}, error) {
 	return set, nil
 }
 
-func buildMatcher(query string, opts Options) (func(string) bool, error) {
+// BuildMatcher returns a predicate reporting whether a text fragment matches
+// the query. Regex mode compiles a case-insensitive regexp; otherwise the query
+// is a case-insensitive fixed-string substring test. Exported so other sources
+// (OpenCode) share the exact same match semantics as the claude grep.
+func BuildMatcher(query string, opts Options) (func(string) bool, error) {
 	if opts.Regex {
 		re, err := regexp.Compile("(?i)" + query)
 		if err != nil {

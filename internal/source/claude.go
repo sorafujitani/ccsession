@@ -11,12 +11,12 @@ func (claudeSource) Name() string { return nameClaude }
 
 func (claudeSource) Scan() ([]*session.Session, error) {
 	ss, err := session.Scan()
-	return stamp(ss), err
+	return stamp(ss, nameClaude), err
 }
 
 func (claudeSource) ScanFiltered(allow map[string]struct{}) ([]*session.Session, error) {
 	ss, err := session.ScanFiltered(allow)
-	return stamp(ss), err
+	return stamp(ss, nameClaude), err
 }
 
 func (claudeSource) FindByID(id string) (*session.Session, error) {
@@ -35,9 +35,9 @@ func (claudeSource) ResumeSpec(s *session.Session) (string, []string, error) {
 	return nameClaude, []string{nameClaude, "--resume", s.ID}, nil
 }
 
-func stamp(ss []*session.Session) []*session.Session {
+func stamp(ss []*session.Session, name string) []*session.Session {
 	for _, s := range ss {
-		s.Source = nameClaude
+		s.Source = name
 	}
 	return ss
 }

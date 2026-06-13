@@ -41,12 +41,6 @@ type previewMessage struct {
 	Content json.RawMessage `json:"content"`
 }
 
-type messageItem struct {
-	Role      string
-	Timestamp time.Time
-	Body      string
-}
-
 // Run writes the preview pane content for a given session id to stdout.
 func Run(id string, opts Options) error {
 	src, err := source.FromEnv()
@@ -66,7 +60,22 @@ func Run(id string, opts Options) error {
 	if s == nil {
 		return fmt.Errorf("session not found: %s", id)
 	}
-	return render(s, os.Stdout, opts)
+	return renderFrom(src, s, os.Stdout, opts)
+}
+
+// messageSource is the seam for a backend that has no JSONL transcript: it
+// supplies the preview's turns directly. Satisfied structurally by the
+// OpenCode source; the claude source omits it and falls back to JSONLPath.
+type messageSource interface {
+	Messages(s *session.Session, limit int) ([]session.Message, time.Time, int, error)
+}
+
+func renderFrom(src source.Source, s *session.Session, out io.Writer, opts Options) error {
+	if ms, ok := src.(messageSource); ok {
+		msgs, startedAt, total, err := ms.Messages(s, maxMessages)
+		return renderWith(s, out, opts, msgs, startedAt, total, err)
+	}
+	return render(s, out, opts)
 }
 
 func render(s *session.Session, out io.Writer, opts Options) error {
@@ -74,6 +83,13 @@ func render(s *session.Session, out io.Writer, opts Options) error {
 	if err != nil {
 		return err
 	}
+	return renderWith(s, out, opts, messages, startedAt, totalMsgs, nil)
+}
+
+// renderWith writes the header and message tail. loadErr (non-nil only for a
+// message-source backend) degrades the body to a notice while still printing
+// the header, since the session itself resolved fine.
+func renderWith(s *session.Session, out io.Writer, opts Options, messages []session.Message, startedAt time.Time, totalMsgs int, loadErr error) error {
 	if startedAt.IsZero() && !s.LastTime.IsZero() {
 		startedAt = s.LastTime
 	}
@@ -105,6 +121,11 @@ func render(s *session.Session, out io.Writer, opts Options) error {
 	)
 	fmt.Fprintln(w, ansi.Dim+strings.Repeat("─", 60)+ansi.Reset)
 
+	if loadErr != nil {
+		fmt.Fprintf(w, "%s(messages unavailable: %v)%s\n", ansi.Dim, loadErr, ansi.Reset)
+		return nil
+	}
+
 	tail := messages
 	if len(tail) > maxMessages {
 		tail = tail[len(tail)-maxMessages:]
@@ -115,7 +136,7 @@ func render(s *session.Session, out io.Writer, opts Options) error {
 	return nil
 }
 
-func writeMessage(w io.Writer, m messageItem, opts Options) {
+func writeMessage(w io.Writer, m session.Message, opts Options) {
 	role := m.Role
 	color := ansi.Green
 	if role == "assistant" {
@@ -193,7 +214,7 @@ func truncateBody(s string) string {
 // to bufio.Reader + ReadString lets us skip the oversize line and continue.
 const previewLineCap = 16 * 1024 * 1024
 
-func loadMessages(path string) ([]messageItem, time.Time, int, error) {
+func loadMessages(path string) ([]session.Message, time.Time, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, time.Time{}, 0, err
@@ -207,7 +228,7 @@ func loadMessages(path string) ([]messageItem, time.Time, int, error) {
 	// (first message time) and total (overall count) are still derived from
 	// the full scan so the header stays accurate.
 	var (
-		ring      = make([]messageItem, maxMessages)
+		ring      = make([]session.Message, maxMessages)
 		startedAt time.Time
 		total     int
 	)
@@ -235,12 +256,12 @@ func loadMessages(path string) ([]messageItem, time.Time, int, error) {
 // order, at most maxMessages of them. total is the overall number of items
 // written into the ring; when it exceeds maxMessages the oldest entries have
 // been overwritten and the live window starts at total%maxMessages.
-func collectRing(ring []messageItem, total int) []messageItem {
+func collectRing(ring []session.Message, total int) []session.Message {
 	n := min(total, maxMessages)
 	if n == 0 {
 		return nil
 	}
-	out := make([]messageItem, 0, n)
+	out := make([]session.Message, 0, n)
 	start := 0
 	if total > maxMessages {
 		start = total % maxMessages
@@ -281,23 +302,23 @@ func readJSONLLine(r *bufio.Reader, max int) (string, error) {
 	}
 }
 
-func parseMessageLine(line string) (messageItem, time.Time, bool) {
+func parseMessageLine(line string) (session.Message, time.Time, bool) {
 	var e previewEntry
 	if err := json.Unmarshal([]byte(line), &e); err != nil {
-		return messageItem{}, time.Time{}, false
+		return session.Message{}, time.Time{}, false
 	}
 	if e.Type != "user" && e.Type != "assistant" {
-		return messageItem{}, time.Time{}, false
+		return session.Message{}, time.Time{}, false
 	}
 	if e.Message == nil {
-		return messageItem{}, time.Time{}, false
+		return session.Message{}, time.Time{}, false
 	}
 	body := session.ExtractText(e.Message.Content, "\n")
 	if body == "" {
-		return messageItem{}, time.Time{}, false
+		return session.Message{}, time.Time{}, false
 	}
 	ts := timefmt.Parse(e.Timestamp)
-	return messageItem{Role: e.Type, Timestamp: ts, Body: body}, ts, true
+	return session.Message{Role: e.Type, Timestamp: ts, Body: body}, ts, true
 }
 
 // relativeOrFuture wraps timefmt.Relative but renders future timestamps

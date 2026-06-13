@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/sorafujitani/ccsession/internal/ansi"
+	"github.com/sorafujitani/ccsession/internal/opencode"
 	"github.com/sorafujitani/ccsession/internal/session"
+	"github.com/sorafujitani/ccsession/internal/source"
 )
 
 func TestExtractText_String(t *testing.T) {
@@ -376,4 +378,24 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// The OpenCode source must satisfy the messageSource seam, or the preview
+// silently falls back to the JSONL path (which OpenCode has none of). This
+// guards against a signature drift between the two independent declarations.
+func TestOpencodeSourceSatisfiesMessageSeam(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "opencode.db")
+	if err := os.WriteFile(db, nil, 0o644); err != nil {
+		t.Fatalf("write db: %v", err)
+	}
+	t.Setenv(opencode.EnvDBPath, db)
+	t.Setenv(source.EnvVar, "opencode")
+
+	src, err := source.FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if _, ok := src.(messageSource); !ok {
+		t.Fatal("opencode source no longer satisfies messageSource; preview would fall back to the JSONL path")
+	}
 }

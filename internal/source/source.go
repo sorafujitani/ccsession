@@ -5,6 +5,7 @@ package source
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/sorafujitani/ccsession/internal/session"
 )
@@ -30,11 +31,24 @@ func FromEnv() (Source, error) {
 	return forName(os.Getenv(EnvVar))
 }
 
+// Names lists the valid backend names (excluding the empty default).
+func Names() []string {
+	return []string{nameClaude, nameOpencode}
+}
+
+// ValidName reports whether name selects a known backend; the empty string is
+// valid and means the claude default.
+func ValidName(name string) bool {
+	return name == "" || name == nameClaude || name == nameOpencode
+}
+
 func forName(name string) (Source, error) {
 	switch name {
 	case "", nameClaude:
 		return claudeSource{}, nil
+	case nameOpencode:
+		return newOpencodeSource()
 	default:
-		return nil, fmt.Errorf("unknown source %q (valid: %s)", name, nameClaude)
+		return nil, fmt.Errorf("unknown source %q (valid: %s)", name, strings.Join(Names(), ", "))
 	}
 }
