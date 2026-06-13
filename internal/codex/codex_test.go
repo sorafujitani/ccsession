@@ -145,6 +145,34 @@ func TestScanSkipsDuplicateIDs(t *testing.T) {
 	}
 }
 
+func TestGrepIgnoresDuplicateIDNonRepresentative(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	id := "019ec14c-b49c-7a40-a386-0a1699dbb01c"
+	first := `{"timestamp":"2026-06-14T00:00:00Z","type":"session_meta","payload":{"id":"` + id + `","timestamp":"2026-06-14T00:00:00Z","cwd":"` + cwd + `"}}` + "\n" +
+		`{"timestamp":"2026-06-14T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first copy"}]}}` + "\n"
+	second := `{"timestamp":"2026-06-15T00:00:00Z","type":"session_meta","payload":{"id":"` + id + `","timestamp":"2026-06-15T00:00:00Z","cwd":"` + cwd + `"}}` + "\n" +
+		`{"timestamp":"2026-06-15T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"duplicate-only needle"}]}}` + "\n"
+	writeSessionNamed(t, home, "2026/06/14/rollout-2026-06-14T00-00-00-"+id+".jsonl", first)
+	writeSessionNamed(t, home, "2026/06/15/rollout-2026-06-15T00-00-00-"+id+".jsonl", second)
+	store := OpenAt(home)
+
+	keys, err := store.GrepKeys("duplicate-only needle", false)
+	if err != nil {
+		t.Fatalf("GrepKeys: %v", err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("GrepKeys matched non-representative duplicate: %#v", keys)
+	}
+	ss, err := store.ScanFiltered(keys)
+	if err != nil {
+		t.Fatalf("ScanFiltered: %v", err)
+	}
+	if len(ss) != 0 {
+		t.Fatalf("ScanFiltered returned non-matching representative: %#v", ss)
+	}
+}
+
 func TestScanMarksMissingCWDUnknown(t *testing.T) {
 	home := t.TempDir()
 	id := "019ec14c-b49c-7a40-a386-0a1699dbb01c"

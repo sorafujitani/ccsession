@@ -84,7 +84,7 @@ func (s *Store) ScanFiltered(allow map[string]struct{}) ([]*session.Session, err
 }
 
 func (s *Store) FindByID(id string) (*session.Session, error) {
-	paths, err := s.sessionPaths()
+	paths, err := s.representativePaths()
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (s *Store) GrepKeys(query string, regex bool) (map[string]struct{}, error) 
 	if err != nil {
 		return nil, err
 	}
-	paths, err := s.sessionPaths()
+	paths, err := s.representativePaths()
 	if err != nil {
 		return nil, err
 	}
@@ -146,21 +146,16 @@ func (s *Store) Messages(sessionID string, limit int) ([]session.Message, time.T
 }
 
 func (s *Store) scanFiltered(allow map[string]struct{}) ([]*session.Session, error) {
-	paths, err := s.sessionPaths()
+	paths, err := s.representativePaths()
 	if err != nil {
 		return nil, err
 	}
 	out := make([]*session.Session, 0, len(paths))
-	seen := make(map[string]struct{})
 	for _, path := range paths {
 		sess, _, _, _, err := parseFile(path, false, 0)
 		if err != nil || sess == nil || !allowed(allow, sess.ID) {
 			continue
 		}
-		if _, ok := seen[sess.ID]; ok {
-			continue
-		}
-		seen[sess.ID] = struct{}{}
 		out = append(out, sess)
 	}
 	nowEpoch := time.Now().Unix()
@@ -194,6 +189,27 @@ func (s *Store) sessionPaths() ([]string, error) {
 	}
 	sort.Strings(paths)
 	return paths, err
+}
+
+func (s *Store) representativePaths() ([]string, error) {
+	paths, err := s.sessionPaths()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		sess, _, _, _, err := parseFile(path, false, 0)
+		if err != nil || sess == nil {
+			continue
+		}
+		if _, ok := seen[sess.ID]; ok {
+			continue
+		}
+		seen[sess.ID] = struct{}{}
+		out = append(out, path)
+	}
+	return out, nil
 }
 
 func parseFile(path string, includeMessages bool, messageLimit int) (*session.Session, []session.Message, time.Time, int, error) {
