@@ -19,8 +19,9 @@ resumes the one you pick in its original working directory.
   preview so you can spot the hit at a glance.
 - **Faithful resume** — `chdir`s back to the session's original `cwd` before
   exec'ing `claude --resume`, so paths and tooling Just Work.
-- **Single static binary** — written in Go; the only dependency is a small
-  TOML parser for the optional config file.
+- **Single static binary** — written in Go with no cgo; bundles a pure-Go
+  SQLite reader (for OpenCode support) and a small TOML parser for the
+  optional config file.
 
 ## Requirements
 
@@ -28,6 +29,7 @@ resumes the one you pick in its original working directory.
 | --- | --- |
 | [`fzf`](https://github.com/junegunn/fzf) `>= 0.58.0` | interactive picker |
 | `claude` ([Claude Code CLI](https://docs.claude.com/en/docs/claude-code)) | resuming sessions |
+| [`opencode`](https://opencode.ai) | listing & resuming OpenCode sessions (only with `--source=opencode`) |
 
 `ccsession` depends on newer `fzf` actions such as `transform`, `rebind`,
 `unbind`, `disable-search`, and `change-nth`. The newest of those,
@@ -41,6 +43,9 @@ switch bindings will not work correctly.
 ```sh
 go install github.com/sorafujitani/ccsession/cmd/ccsession@latest
 ```
+
+Requires Go 1.25 or newer (the pure-Go SQLite reader for OpenCode support
+needs it; see #52).
 
 Version metadata is recovered from `runtime/debug.ReadBuildInfo`, so
 `ccsession --version` works for `go install` builds as well.
@@ -78,7 +83,10 @@ brew install sorafujitani/tap/ccsession
 The formula lives in
 [`sorafujitani/homebrew-tap`](https://github.com/sorafujitani/homebrew-tap)
 and GoReleaser refreshes it on every tagged release. `fzf` is installed as a
-dependency; the `claude` CLI must be installed separately.
+dependency; the `claude` CLI must be installed separately. `opencode` is
+needed only with `--source=opencode` — it backs an optional feature (unlike
+`fzf`, which is always required), so it is intentionally left out of the
+formula's `depends_on`.
 
 ## Usage
 

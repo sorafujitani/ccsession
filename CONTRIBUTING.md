@@ -11,9 +11,10 @@ can agree on the approach before you invest time in a PR.
 
 | Tool | Required for |
 | --- | --- |
-| [Go](https://go.dev/dl/) 1.22+ | building and testing |
+| [Go](https://go.dev/dl/) 1.25+ | building and testing |
 | [`fzf`](https://github.com/junegunn/fzf) | running the interactive picker |
 | `claude` ([Claude Code CLI](https://docs.claude.com/en/docs/claude-code)) | exercising `resume` end to end |
+| [`opencode`](https://opencode.ai) | exercising the `--source=opencode` backend (optional) |
 
 A [Nix](https://nixos.org/) flake is provided that pins Go, `fzf`, `gopls`, and
 `goreleaser`. It is the quickest way to get a reproducible toolchain, but it is
@@ -52,9 +53,11 @@ internal/
   config/         config-file + env + flag resolution
   grep/           full-text search over JSONL transcripts
   list/           TSV row rendering for fzf
+  opencode/       OpenCode SQLite backend (sessions, preview, grep)
   preview/        preview-pane rendering
   resume/         chdir + exec of `claude --resume`
   session/        scanning and parsing of ~/.claude/projects/*.jsonl
+  source/         backend abstraction (claude / opencode selection)
   timefmt/        relative-time formatting
 ```
 
@@ -94,6 +97,24 @@ Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`.
 4. Fill in the pull request template and link the issue it addresses.
 5. CI (`go vet`, `go build`, `go test`, `goreleaser check`) must be green
    before review.
+
+## Pre-release smoke checks
+
+`go test ./...` covers most behaviour, but the OpenCode backend talks to an
+external SQLite store that the test suite drives through fixtures. Before
+tagging a release, run a manual smoke test against a real OpenCode install:
+
+1. Create at least one session with the latest OpenCode (run `opencode` and
+   send a message or two so the session is persisted to its store).
+2. Exercise each command path against that backend:
+   - `ccsession --opencode` — the session shows up in the picker (**list**).
+   - move the cursor onto it — the pane renders its messages (**preview**).
+   - switch to grep mode and type a word from the session — it stays
+     matched (**grep**).
+   - press Enter — it resumes in the original directory (**resume**).
+
+The Claude backend is exercised continuously in everyday use, so it needs no
+separate checklist.
 
 ## License
 
