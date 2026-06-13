@@ -9,8 +9,13 @@ import (
 	"github.com/sorafujitani/ccsession/internal/session"
 )
 
-// EnvVar selects the backend and is propagated to the fzf subprocesses.
+// EnvVar selects the backend and is inherited by the fzf subprocesses via
+// os.Environ() (see cmd/ccsession/main.go), so every re-invocation resolves
+// the same source.
 const EnvVar = "CCSESSION_SOURCE"
+
+// nameClaude is the backend name for the Claude Code source.
+const nameClaude = "claude"
 
 type Source interface {
 	Name() string
@@ -27,9 +32,9 @@ func FromEnv() (Source, error) {
 
 func forName(name string) (Source, error) {
 	switch name {
-	case "", "claude":
+	case "", nameClaude:
 		return claudeSource{}, nil
 	default:
-		return nil, fmt.Errorf("unknown source %q (valid: claude)", name)
+		return nil, fmt.Errorf("unknown source %q (valid: %s)", name, nameClaude)
 	}
 }

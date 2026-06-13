@@ -7,7 +7,7 @@ import (
 
 type claudeSource struct{}
 
-func (claudeSource) Name() string { return "claude" }
+func (claudeSource) Name() string { return nameClaude }
 
 func (claudeSource) Scan() ([]*session.Session, error) {
 	ss, err := session.Scan()
@@ -22,7 +22,7 @@ func (claudeSource) ScanFiltered(allow map[string]struct{}) ([]*session.Session,
 func (claudeSource) FindByID(id string) (*session.Session, error) {
 	s, err := session.FindByID(id)
 	if s != nil {
-		s.Source = "claude"
+		s.Source = nameClaude
 	}
 	return s, err
 }
@@ -32,12 +32,12 @@ func (claudeSource) GrepKeys(query string, regex bool) (map[string]struct{}, err
 }
 
 func (claudeSource) ResumeSpec(s *session.Session) (string, []string, error) {
-	return "claude", []string{"claude", "--resume", s.ID}, nil
+	return nameClaude, []string{nameClaude, "--resume", s.ID}, nil
 }
 
 func stamp(ss []*session.Session) []*session.Session {
 	for _, s := range ss {
-		s.Source = "claude"
+		s.Source = nameClaude
 	}
 	return ss
 }
