@@ -40,9 +40,10 @@
           pname = "ccsession";
           version = ccsessionVersion;
           src = ./.;
-          # 依存追加時はここを `lib.fakeHash` にしてビルドし、出力された
-          # hash を貼り直す。現状は外部依存ゼロのため null で問題ない。
-          vendorHash = null;
+          # go.mod の依存（TOML パーサ + pure-Go SQLite ドライバ）を取得・
+          # 検証する固定出力ハッシュ。依存を更新したら一旦 pkgs.lib.fakeHash
+          # に戻してビルドし、報告された hash を貼り直す。
+          vendorHash = "sha256-yBf0ScxjkCRb6Cp/QnGpR3O/llTPqc4vIQSMZ5hoP/o=";
           subPackages = [ "cmd/ccsession" ];
           ldflags = [
             "-s"
