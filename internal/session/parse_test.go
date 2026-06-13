@@ -406,16 +406,16 @@ func TestSanitizeLabel(t *testing.T) {
 		{"with\x00null", "with null"},
 	}
 	for _, c := range cases {
-		got := sanitizeLabel(c.in)
+		got := SanitizeLabel(c.in)
 		if got != c.want {
-			t.Errorf("sanitizeLabel(%q) = %q, want %q", c.in, got, c.want)
+			t.Errorf("SanitizeLabel(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
 
 func TestSanitizeLabel_TruncatesAtLabelMaxLen(t *testing.T) {
 	in := strings.Repeat("a", LabelMaxLen+10)
-	got := sanitizeLabel(in)
+	got := SanitizeLabel(in)
 	if len([]rune(got)) != LabelMaxLen {
 		t.Errorf("rune length = %d, want %d", len([]rune(got)), LabelMaxLen)
 	}

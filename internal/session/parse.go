@@ -133,7 +133,7 @@ func ParseSessionTail(path string, maxBytes int64) (*Session, error) {
 	if label == "" {
 		return nil, ErrSessionEmpty
 	}
-	sess.Label = sanitizeLabel(label)
+	sess.Label = SanitizeLabel(label)
 	// Defense in depth: if every label candidate sanitized to empty
 	// (e.g., a label that was just control chars), treat as empty.
 	if sess.Label == "" {
@@ -200,7 +200,10 @@ func readTail(path string, maxBytes int64) ([]byte, error) {
 	return buf, nil
 }
 
-func sanitizeLabel(s string) string {
+// SanitizeLabel collapses whitespace and neutralizes control characters in a
+// session label so it is safe to emit into the tab-separated fzf row. Exported
+// for reuse by other sources (OpenCode titles come from the DB, not a JSONL).
+func SanitizeLabel(s string) string {
 	// Replace every C0/C1-ish control char (ESC, BEL, DEL, …) with a space,
 	// not just CR/LF/TAB. Pasted ANSI color codes otherwise leak through
 	// and can hijack fzf rendering.
