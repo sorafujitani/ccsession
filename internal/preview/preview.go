@@ -60,6 +60,11 @@ func Run(id string, opts Options) error {
 	if s == nil {
 		return fmt.Errorf("session not found: %s", id)
 	}
+	if rs, ok := src.(routeSource); ok {
+		if routed, ok := rs.SourceForSession(s); ok {
+			src = routed
+		}
+	}
 	return renderFrom(src, s, os.Stdout, opts)
 }
 
@@ -68,6 +73,10 @@ func Run(id string, opts Options) error {
 // OpenCode source; the claude source omits it and falls back to JSONLPath.
 type messageSource interface {
 	Messages(s *session.Session, limit int) ([]session.Message, time.Time, int, error)
+}
+
+type routeSource interface {
+	SourceForSession(s *session.Session) (source.Source, bool)
 }
 
 func renderFrom(src source.Source, s *session.Session, out io.Writer, opts Options) error {

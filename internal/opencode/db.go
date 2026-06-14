@@ -162,6 +162,13 @@ func Preflight() error {
 		strings.Join(probed, ", "))
 }
 
+// HasLegacyStorage reports whether any probed data directory has the pre-SQLite
+// storage tree. Callers that treat a missing DB as optional still use this to
+// surface a useful migration error when old OpenCode data exists.
+func HasLegacyStorage(probed []string) bool {
+	return len(legacyDirs(probed)) > 0
+}
+
 // legacyDirs reports which probed locations hold a pre-v1.2.0 storage/ tree.
 func legacyDirs(probed []string) []string {
 	var out []string

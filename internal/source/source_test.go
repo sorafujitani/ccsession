@@ -28,6 +28,7 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 		wantErr  bool
 	}{
 		{"", "claude", false},
+		{"all", "all", false},
 		{"claude", "claude", false},
 		{"opencode", "opencode", false},
 		{"grok", "grok", false},
@@ -204,6 +205,160 @@ func TestCodex_FindByIDStampsSource(t *testing.T) {
 	if s == nil || s.Source != "codex" {
 		t.Errorf("FindByID Source = %v, want codex", s)
 	}
+}
+
+func TestAllSource_ScanReturnsCompositeIDsSorted(t *testing.T) {
+	src := allSource{sources: []Source{
+		fakeSource{name: "claude", sessions: []*session.Session{
+			{ID: "c1", Source: "claude", LastEpoch: 10},
+		}},
+		fakeSource{name: "codex", sessions: []*session.Session{
+			{ID: "x1", Source: "codex", LastEpoch: 20},
+		}},
+	}}
+
+	ss, err := src.Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 2 {
+		t.Fatalf("Scan returned %d sessions, want 2", len(ss))
+	}
+	if ss[0].ID != "codex:x1" || ss[1].ID != "claude:c1" {
+		t.Fatalf("IDs = %q, %q; want sorted composite IDs", ss[0].ID, ss[1].ID)
+	}
+	if ss[0].Source != "codex" || ss[1].Source != "claude" {
+		t.Fatalf("Sources = %q, %q", ss[0].Source, ss[1].Source)
+	}
+}
+
+func TestAllSource_GrepKeysFeedScanFiltered(t *testing.T) {
+	src := allSource{sources: []Source{
+		fakeSource{name: "claude", sessions: []*session.Session{
+			{ID: "c1", Source: "claude"},
+		}, grep: map[string]struct{}{"path:with:colon.jsonl": {}}},
+		fakeSource{name: "codex", sessions: []*session.Session{
+			{ID: "x1", Source: "codex"},
+		}, grep: map[string]struct{}{"x1": {}}},
+	}}
+
+	keys, err := src.GrepKeys("needle", false)
+	if err != nil {
+		t.Fatalf("GrepKeys: %v", err)
+	}
+	if _, ok := keys["claude:path:with:colon.jsonl"]; !ok {
+		t.Fatalf("missing wrapped claude key in %v", keys)
+	}
+	if _, ok := keys["codex:x1"]; !ok {
+		t.Fatalf("missing wrapped codex key in %v", keys)
+	}
+
+	ss, err := src.ScanFiltered(keys)
+	if err != nil {
+		t.Fatalf("ScanFiltered: %v", err)
+	}
+	ids := make(map[string]struct{})
+	for _, s := range ss {
+		ids[s.ID] = struct{}{}
+	}
+	if _, ok := ids["claude:c1"]; !ok {
+		t.Fatalf("missing claude session in %v", ids)
+	}
+	if _, ok := ids["codex:x1"]; !ok {
+		t.Fatalf("missing codex session in %v", ids)
+	}
+}
+
+func TestAllSource_ScanFilteredNilScansAll(t *testing.T) {
+	src := allSource{sources: []Source{
+		fakeSource{name: "claude", sessions: []*session.Session{
+			{ID: "c1", Source: "claude"},
+		}},
+		fakeSource{name: "codex", sessions: []*session.Session{
+			{ID: "x1", Source: "codex"},
+		}},
+	}}
+
+	ss, err := src.ScanFiltered(nil)
+	if err != nil {
+		t.Fatalf("ScanFiltered(nil): %v", err)
+	}
+	if len(ss) != 2 {
+		t.Fatalf("ScanFiltered(nil) returned %d sessions, want 2", len(ss))
+	}
+}
+
+func TestAllSource_FindByIDAndResumeRouteByCompositeKey(t *testing.T) {
+	src := allSource{sources: []Source{
+		fakeSource{name: "claude", sessions: []*session.Session{
+			{ID: "same", Source: "claude"},
+		}, resumeBin: "claude"},
+		fakeSource{name: "codex", sessions: []*session.Session{
+			{ID: "same", Source: "codex"},
+		}, resumeBin: "codex"},
+	}}
+
+	s, err := src.FindByID("codex:same")
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if s.ID != "same" || s.Source != "codex" {
+		t.Fatalf("FindByID returned %+v, want codex real ID", s)
+	}
+	bin, args, err := src.ResumeSpec(s)
+	if err != nil {
+		t.Fatalf("ResumeSpec: %v", err)
+	}
+	if bin != "codex" || len(args) != 2 || args[1] != "same" {
+		t.Fatalf("ResumeSpec = %q %v, want codex resume same", bin, args)
+	}
+}
+
+type fakeSource struct {
+	name      string
+	sessions  []*session.Session
+	grep      map[string]struct{}
+	resumeBin string
+}
+
+func (f fakeSource) Name() string { return f.name }
+
+func (f fakeSource) Scan() ([]*session.Session, error) {
+	return f.sessions, nil
+}
+
+func (f fakeSource) ScanFiltered(allow map[string]struct{}) ([]*session.Session, error) {
+	var out []*session.Session
+	for _, s := range f.sessions {
+		if _, ok := allow[s.ID]; ok {
+			out = append(out, s)
+			continue
+		}
+		if f.name == "claude" {
+			if _, ok := allow["path:with:colon.jsonl"]; ok {
+				out = append(out, s)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (f fakeSource) FindByID(id string) (*session.Session, error) {
+	for _, s := range f.sessions {
+		if s.ID == id {
+			cp := *s
+			return &cp, nil
+		}
+	}
+	return nil, session.ErrSessionFileMissing
+}
+
+func (f fakeSource) GrepKeys(string, bool) (map[string]struct{}, error) {
+	return f.grep, nil
+}
+
+func (f fakeSource) ResumeSpec(s *session.Session) (string, []string, error) {
+	return f.resumeBin, []string{f.resumeBin, s.ID}, nil
 }
 
 func fixtureCodexHome(t *testing.T, content string) (home, id string) {

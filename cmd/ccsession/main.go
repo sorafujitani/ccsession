@@ -67,7 +67,7 @@ func init() {
 const usage = `ccsession - fzf frontend for agent session resume
 
 USAGE:
-  ccsession [--source <s>] [--exclude-dir <s>]        # list -> fzf -> resume
+  ccsession [--all | --source <s>] [--exclude-dir <s>] # list -> fzf -> resume
   ccsession list [--grep Q] [--exclude-dir S]         # TSV rows for fzf
   ccsession preview <sessionId>   # preview pane content
   ccsession resume  <sessionId>   # chdir to original cwd, exec the agent
@@ -76,9 +76,10 @@ USAGE:
   non-flag argument).
 
 GLOBAL FLAGS:
-  --source <s>        session backend: claude (default) | opencode | grok | codex. Inherited
+  --source <s>        session backend: claude (default) | all | opencode | grok | codex. Inherited
                       by the picker's reload/preview/resume re-invocations via
                       CCSESSION_SOURCE.
+  --all               shorthand for --source=all
   --opencode          shorthand for --source=opencode
   --grok              shorthand for --source=grok
   --codex             shorthand for --source=codex
@@ -188,6 +189,7 @@ func main() {
 type globalFlags struct {
 	excludeDir string
 	source     string
+	all        bool
 	opencode   bool
 	grok       bool
 	codex      bool
@@ -201,6 +203,12 @@ type globalFlags struct {
 // fzf child) is validated too, so a typo can't slip through as the default.
 func applySource(gf globalFlags) error {
 	name := gf.source
+	if gf.all {
+		if name != "" && name != "all" {
+			return fmt.Errorf("--all conflicts with --source=%s", name)
+		}
+		name = "all"
+	}
 	if gf.opencode {
 		if name != "" && name != "opencode" {
 			return fmt.Errorf("--opencode conflicts with --source=%s", name)
@@ -246,6 +254,12 @@ func parseGlobalFlags(args []string) (gf globalFlags, rest []string) {
 next:
 	for i < len(args) {
 		a := args[i]
+		// --all is sugar for --source=all and takes no value.
+		if a == "--all" {
+			gf.all = true
+			i++
+			continue next
+		}
 		// --opencode is sugar for --source=opencode and takes no value.
 		if a == "--opencode" {
 			gf.opencode = true

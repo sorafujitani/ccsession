@@ -1,6 +1,7 @@
 package source
 
 import (
+	"errors"
 	"os"
 	"time"
 
@@ -24,7 +25,19 @@ func newOpencodeSource() (Source, error) {
 // raised inside fzf are invisible. Only opencode has a failure mode worth
 // catching early (missing/legacy/unreadable DB); claude is always ready.
 func Preflight() error {
-	if os.Getenv(EnvVar) == nameOpencode {
+	switch os.Getenv(EnvVar) {
+	case nameOpencode:
+		return opencode.Preflight()
+	case nameAll:
+		if _, probed, err := opencode.ResolveDBPath(); err != nil {
+			if errors.Is(err, opencode.ErrDBNotFound) && os.Getenv(opencode.EnvDBPath) == "" {
+				if opencode.HasLegacyStorage(probed) {
+					return opencode.Preflight()
+				}
+				return nil
+			}
+			return err
+		}
 		return opencode.Preflight()
 	}
 	return nil
