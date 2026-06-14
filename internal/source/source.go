@@ -18,6 +18,8 @@ const EnvVar = "CCSESSION_SOURCE"
 // nameClaude is the backend name for the Claude Code source.
 const nameClaude = "claude"
 
+const nameAll = "all"
+
 type Source interface {
 	Name() string
 	Scan() ([]*session.Session, error)
@@ -33,19 +35,21 @@ func FromEnv() (Source, error) {
 
 // Names lists the valid backend names (excluding the empty default).
 func Names() []string {
-	return []string{nameClaude, nameOpencode, nameGrok, nameCodex}
+	return []string{nameAll, nameClaude, nameOpencode, nameGrok, nameCodex}
 }
 
 // ValidName reports whether name selects a known backend; the empty string is
 // valid and means the claude default.
 func ValidName(name string) bool {
-	return name == "" || name == nameClaude || name == nameOpencode || name == nameGrok || name == nameCodex
+	return name == "" || name == nameAll || name == nameClaude || name == nameOpencode || name == nameGrok || name == nameCodex
 }
 
 func forName(name string) (Source, error) {
 	switch name {
 	case "", nameClaude:
 		return claudeSource{}, nil
+	case nameAll:
+		return newAllSource()
 	case nameOpencode:
 		return newOpencodeSource()
 	case nameGrok:

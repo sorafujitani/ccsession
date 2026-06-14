@@ -58,6 +58,20 @@ func TestBuildScriptCustom(t *testing.T) {
 	}
 }
 
+func TestBuildScriptPassesHiddenKeyToPreviewAndResume(t *testing.T) {
+	got := buildScript(config.Defaults(), "all")
+	wants := []string{
+		`--preview "$CCSESSION_BIN preview --query {q} {1}"`,
+		`| awk -F'\t' '{print $1}')`,
+		`exec "$CCSESSION_BIN" resume "$id"`,
+	}
+	for _, w := range wants {
+		if !strings.Contains(got, w) {
+			t.Errorf("buildScript(all) missing %q", w)
+		}
+	}
+}
+
 func TestParseGlobalFlags(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -95,6 +109,13 @@ func TestParseGlobalFlags(t *testing.T) {
 			name:   "source space form",
 			args:   []string{"--source", "opencode"},
 			wantGF: globalFlags{source: "opencode"},
+		},
+		{
+			name:   "all sugar takes no value",
+			args:   []string{"--all", "list"},
+			wantGF: globalFlags{all: true},
+			// "list" is the subcommand, not a value consumed by --all.
+			wantRest: []string{"list"},
 		},
 		{
 			name:   "opencode sugar takes no value",
@@ -138,14 +159,19 @@ func TestApplySource(t *testing.T) {
 		wantEnv string // CCSESSION_SOURCE after applySource
 	}{
 		{name: "default claude leaves env empty", wantEnv: ""},
+		{name: "all sugar", gf: globalFlags{all: true}, wantEnv: "all"},
 		{name: "opencode sugar", gf: globalFlags{opencode: true}, wantEnv: "opencode"},
 		{name: "grok sugar", gf: globalFlags{grok: true}, wantEnv: "grok"},
 		{name: "codex sugar", gf: globalFlags{codex: true}, wantEnv: "codex"},
 		{name: "source flag", gf: globalFlags{source: "opencode"}, wantEnv: "opencode"},
+		{name: "source flag all", gf: globalFlags{source: "all"}, wantEnv: "all"},
 		{name: "source flag grok", gf: globalFlags{source: "grok"}, wantEnv: "grok"},
 		{name: "source flag codex", gf: globalFlags{source: "codex"}, wantEnv: "codex"},
+		{name: "all sugar agrees with source", gf: globalFlags{all: true, source: "all"}, wantEnv: "all"},
 		{name: "sugar agrees with source", gf: globalFlags{opencode: true, source: "opencode"}, wantEnv: "opencode"},
 		{name: "codex sugar agrees with source", gf: globalFlags{codex: true, source: "codex"}, wantEnv: "codex"},
+		{name: "all sugar contradicts source", gf: globalFlags{all: true, source: "claude"}, wantErr: true},
+		{name: "all sugar conflicts with backend sugar", gf: globalFlags{all: true, codex: true}, wantErr: true},
 		{name: "sugar contradicts source", gf: globalFlags{opencode: true, source: "claude"}, wantErr: true},
 		{name: "grok sugar contradicts source", gf: globalFlags{grok: true, source: "opencode"}, wantErr: true},
 		{name: "codex sugar contradicts source", gf: globalFlags{codex: true, source: "grok"}, wantErr: true},
@@ -154,6 +180,7 @@ func TestApplySource(t *testing.T) {
 		{name: "unknown source flag", gf: globalFlags{source: "bogus"}, wantErr: true},
 		{name: "inherited env is validated", env: "bogus", wantErr: true},
 		{name: "inherited valid env survives", env: "opencode", wantEnv: "opencode"},
+		{name: "inherited all env survives", env: "all", wantEnv: "all"},
 		{name: "inherited grok env survives", env: "grok", wantEnv: "grok"},
 		{name: "inherited codex env survives", env: "codex", wantEnv: "codex"},
 	}

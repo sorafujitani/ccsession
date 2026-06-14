@@ -42,6 +42,29 @@ func TestFormatLine_NoColor(t *testing.T) {
 	}
 }
 
+func TestFormatLine_CompositeIDRemainsHiddenKey(t *testing.T) {
+	now := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
+	s := &session.Session{
+		ID:          "codex:abc",
+		LastTime:    now,
+		LastEpoch:   now.Unix(),
+		CWDBasename: "proj",
+		CWDExists:   true,
+		Label:       "hello",
+	}
+	got := formatLine(s, now, false)
+	fields := strings.Split(got, "\t")
+	if len(fields) != 5 {
+		t.Fatalf("got %d fields, want 5: %q", len(fields), got)
+	}
+	if fields[0] != "codex:abc" {
+		t.Errorf("hidden key = %q, want composite id", fields[0])
+	}
+	if fields[3] != "proj" || fields[4] != "hello" {
+		t.Errorf("visible fields changed: %v", fields)
+	}
+}
+
 func TestFormatLine_WithColor(t *testing.T) {
 	now := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
 	s := &session.Session{
