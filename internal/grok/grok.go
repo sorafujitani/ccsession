@@ -124,18 +124,31 @@ func (s *Store) GrepKeys(query string, regex bool) (map[string]struct{}, error) 
 			set[sess.ID] = struct{}{}
 			continue
 		}
-		msgs, err := messagesForSession(sess, 0)
+		texts, err := messageTextsForSession(sess)
 		if err != nil {
 			return nil, err
 		}
-		for _, m := range msgs {
-			if match(m.Body) {
-				set[sess.ID] = struct{}{}
-				break
-			}
+		if grep.TextsContain(texts, match) {
+			set[sess.ID] = struct{}{}
 		}
 	}
 	return set, nil
+}
+
+func messageTextsForSession(sess *session.Session) ([]string, error) {
+	sessionDir := filepath.Dir(sess.JSONLPath)
+	updateTexts, err := grep.CachedFileTexts(filepath.Join(sessionDir, "updates.jsonl"), readUpdateMessageTexts)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if len(updateTexts) > 0 {
+		return updateTexts, nil
+	}
+	texts, err := grep.CachedFileTexts(filepath.Join(sessionDir, "chat_history.jsonl"), readChatMessageTexts)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return texts, err
 }
 
 func (s *Store) Messages(sessionID string, limit int) ([]session.Message, time.Time, int, error) {
@@ -296,6 +309,14 @@ func readUpdateMessages(path string) ([]session.Message, error) {
 	return out, err
 }
 
+func readUpdateMessageTexts(path string) ([]string, error) {
+	msgs, err := readUpdateMessages(path)
+	if err != nil {
+		return nil, err
+	}
+	return messageBodies(msgs), nil
+}
+
 func readChatMessages(path string) ([]session.Message, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -321,6 +342,22 @@ func readChatMessages(path string) ([]session.Message, error) {
 		out = append(out, session.Message{Role: e.Type, Body: body})
 	})
 	return out, err
+}
+
+func readChatMessageTexts(path string) ([]string, error) {
+	msgs, err := readChatMessages(path)
+	if err != nil {
+		return nil, err
+	}
+	return messageBodies(msgs), nil
+}
+
+func messageBodies(msgs []session.Message) []string {
+	out := make([]string, 0, len(msgs))
+	for _, msg := range msgs {
+		out = append(out, msg.Body)
+	}
+	return out
 }
 
 func updateRole(update string) string {

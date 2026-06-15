@@ -57,14 +57,7 @@ func Filter(query string, opts Options) (map[string]struct{}, error) {
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			var hit bool
-			_ = session.IterContent(p, func(text string) bool {
-				if match(text) {
-					hit = true
-					return false
-				}
-				return true
-			})
+			hit, _ := FileContains(p, match, sessionFileTexts)
 			if hit {
 				mu.Lock()
 				set[p] = struct{}{}
@@ -74,6 +67,15 @@ func Filter(query string, opts Options) (map[string]struct{}, error) {
 	}
 	wg.Wait()
 	return set, nil
+}
+
+func sessionFileTexts(path string) ([]string, error) {
+	var texts []string
+	err := session.IterContent(path, func(text string) bool {
+		texts = append(texts, text)
+		return true
+	})
+	return texts, err
 }
 
 // BuildMatcher returns a predicate reporting whether a text fragment matches
