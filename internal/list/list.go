@@ -156,8 +156,8 @@ func formatLine(s *session.Session, now time.Time, color bool) string {
 	} else {
 		rel = padRight(rel, 9)
 	}
-	return fmt.Sprintf("%s\t%d\t%s\t%s\t%s%s",
-		s.ID, s.LastEpoch, rel, base, marker, s.Label)
+	return fmt.Sprintf("%s\t%s\t%d\t%s\t%s\t%s%s",
+		s.ID, source.LocatorFor(s), s.LastEpoch, rel, base, marker, s.Label)
 }
 
 func padRight(s string, n int) string {

@@ -22,20 +22,23 @@ func TestFormatLine_NoColor(t *testing.T) {
 	}
 	got := formatLine(s, now, false)
 	fields := strings.Split(got, "\t")
-	if len(fields) != 5 {
-		t.Fatalf("got %d fields, want 5: %q", len(fields), got)
+	if len(fields) != 6 {
+		t.Fatalf("got %d fields, want 6: %q", len(fields), got)
 	}
 	if fields[0] != "abc" {
 		t.Errorf("col1 = %q", fields[0])
 	}
-	if !strings.HasPrefix(fields[2], "30m ago") {
-		t.Errorf("col3 = %q, want prefix '30m ago'", fields[2])
+	if fields[1] == "" {
+		t.Errorf("locator column is empty")
 	}
-	if fields[3] != "ccsession" {
-		t.Errorf("col4 = %q", fields[3])
+	if !strings.HasPrefix(fields[3], "30m ago") {
+		t.Errorf("col4 = %q, want prefix '30m ago'", fields[3])
 	}
-	if fields[4] != "hello" {
+	if fields[4] != "ccsession" {
 		t.Errorf("col5 = %q", fields[4])
+	}
+	if fields[5] != "hello" {
+		t.Errorf("col6 = %q", fields[5])
 	}
 	if strings.Contains(got, "\x1b[") {
 		t.Errorf("unexpected ANSI in no-color output: %q", got)
@@ -46,6 +49,7 @@ func TestFormatLine_CompositeIDRemainsHiddenKey(t *testing.T) {
 	now := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
 	s := &session.Session{
 		ID:          "codex:abc",
+		Source:      "codex",
 		LastTime:    now,
 		LastEpoch:   now.Unix(),
 		CWDBasename: "proj",
@@ -54,13 +58,16 @@ func TestFormatLine_CompositeIDRemainsHiddenKey(t *testing.T) {
 	}
 	got := formatLine(s, now, false)
 	fields := strings.Split(got, "\t")
-	if len(fields) != 5 {
-		t.Fatalf("got %d fields, want 5: %q", len(fields), got)
+	if len(fields) != 6 {
+		t.Fatalf("got %d fields, want 6: %q", len(fields), got)
 	}
 	if fields[0] != "codex:abc" {
 		t.Errorf("hidden key = %q, want composite id", fields[0])
 	}
-	if fields[3] != "proj" || fields[4] != "hello" {
+	if !strings.HasPrefix(fields[1], "codex:") {
+		t.Errorf("locator = %q, want source-prefixed locator", fields[1])
+	}
+	if fields[4] != "proj" || fields[5] != "hello" {
 		t.Errorf("visible fields changed: %v", fields)
 	}
 }
@@ -143,8 +150,8 @@ func TestFormatLine_EmptyBasenameFallsBackToUnknown(t *testing.T) {
 	}
 	got := formatLine(s, now, false)
 	fields := strings.Split(got, "\t")
-	if fields[3] != "(unknown)" {
-		t.Errorf("col4 = %q, want '(unknown)'", fields[3])
+	if fields[4] != "(unknown)" {
+		t.Errorf("col5 = %q, want '(unknown)'", fields[4])
 	}
 }
 

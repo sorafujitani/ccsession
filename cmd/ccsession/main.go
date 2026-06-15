@@ -349,6 +349,7 @@ func cmdPreview(args []string) {
 	fs := newFlagSet("preview", previewUsage)
 	queryFlag := fs.String("query", "", "highlight matches of <query> in the preview")
 	regexFlag := fs.Bool("regex", false, "treat --query as a regular expression")
+	locatorFlag := fs.String("locator", "", "opaque session locator from list output")
 	if err := fs.Parse(args); err != nil {
 		handleFlagError("preview", fs, err)
 	}
@@ -358,7 +359,7 @@ func cmdPreview(args []string) {
 		fs.Usage()
 		os.Exit(2)
 	}
-	if err := preview.Run(rest[0], preview.Options{Query: *queryFlag, Regex: *regexFlag}); err != nil {
+	if err := preview.Run(rest[0], preview.Options{Query: *queryFlag, Regex: *regexFlag, Locator: *locatorFlag}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession preview:", err)
 		os.Exit(1)
 	}
@@ -366,6 +367,7 @@ func cmdPreview(args []string) {
 
 func cmdResume(args []string) {
 	fs := newFlagSet("resume", resumeUsage)
+	locatorFlag := fs.String("locator", "", "opaque session locator from list output")
 	if err := fs.Parse(args); err != nil {
 		handleFlagError("resume", fs, err)
 	}
@@ -375,7 +377,7 @@ func cmdResume(args []string) {
 		fs.Usage()
 		os.Exit(2)
 	}
-	if err := resume.Run(rest[0]); err != nil {
+	if err := resume.Run(rest[0], resume.Options{Locator: *locatorFlag}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession resume:", err)
 		os.Exit(1)
 	}
@@ -470,15 +472,15 @@ if [ -n "${CCSESSION_EXCLUDE_DIR:-}" ]; then
   exclude_args=(--exclude-dir "$CCSESSION_EXCLUDE_DIR")
   exclude_arg=$(printf -- '--exclude-dir %q' "$CCSESSION_EXCLUDE_DIR")
 fi
-id=$("$CCSESSION_BIN" list --color=always "${exclude_args[@]+"${exclude_args[@]}"}" | fzf \
+selected=$("$CCSESSION_BIN" list --color=always "${exclude_args[@]+"${exclude_args[@]}"}" | fzf \
   --ansi \
   --delimiter=$'\t' \
-  --with-nth=3,4,5 \
+  --with-nth=4,5,6 \
   --nth=1,2,3 \
   --no-sort \
   --no-hscroll \
   --color='hl:-1:reverse,hl+:-1:reverse' \
-  --preview "$CCSESSION_BIN preview --query {q} {1}" \
+  --preview "$CCSESSION_BIN preview --locator {2} --query {q} {1}" \
   --preview-window=right,60%,wrap \
   --header='[__CCS_SOURCE__] __CCS_BIND_GREP__: grep / __CCS_BIND_DIR__: dir / __CCS_BIND_FUZZY__: fuzzy / enter: resume' \
   --bind 'start:unbind(change)' \
@@ -486,8 +488,9 @@ id=$("$CCSESSION_BIN" list --color=always "${exclude_args[@]+"${exclude_args[@]}
   --bind "__CCS_BIND_GREP__:transform:echo \"change-prompt(grep> )+disable-search+reload(sleep 0.05; $CCSESSION_BIN list --color=always $exclude_arg --grep {q})+rebind(change)\"" \
   --bind "__CCS_BIND_DIR__:transform:echo \"change-prompt(dir> )+enable-search+change-nth(2)+reload($CCSESSION_BIN list --color=always $exclude_arg)+unbind(change)\"" \
   --bind "__CCS_BIND_FUZZY__:transform:echo \"change-prompt(> )+enable-search+change-nth(1,2,3)+reload($CCSESSION_BIN list --color=always $exclude_arg)+unbind(change)\"" \
-  | awk -F'\t' '{print $1}') || true
-if [ -n "$id" ]; then
-  exec "$CCSESSION_BIN" resume "$id"
+  ) || true
+if [ -n "$selected" ]; then
+  IFS=$'\t' read -r id locator _rest <<< "$selected"
+  exec "$CCSESSION_BIN" resume --locator "$locator" "$id"
 fi
 `

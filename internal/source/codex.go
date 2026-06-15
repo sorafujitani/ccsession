@@ -39,6 +39,18 @@ func (c codexSource) FindByID(id string) (*session.Session, error) {
 	return s, err
 }
 
+func (c codexSource) FindByLocator(id, locator string) (*session.Session, error) {
+	path, ok := decodeLocator(locator)
+	if !ok {
+		return nil, session.ErrSessionFileMissing
+	}
+	s, err := c.store.FindByLocator(id, path)
+	if s != nil {
+		s.Source = nameCodex
+	}
+	return s, err
+}
+
 func (c codexSource) GrepKeys(query string, regex bool) (map[string]struct{}, error) {
 	return c.store.GrepKeys(query, regex)
 }
@@ -48,5 +60,5 @@ func (c codexSource) ResumeSpec(s *session.Session) (string, []string, error) {
 }
 
 func (c codexSource) Messages(s *session.Session, limit int) ([]session.Message, time.Time, int, error) {
-	return c.store.Messages(s.ID, limit)
+	return c.store.MessagesForSession(s, limit)
 }

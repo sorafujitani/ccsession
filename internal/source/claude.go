@@ -27,6 +27,22 @@ func (claudeSource) FindByID(id string) (*session.Session, error) {
 	return s, err
 }
 
+func (claudeSource) FindByLocator(id, locator string) (*session.Session, error) {
+	path, ok := decodeLocator(locator)
+	if !ok {
+		return nil, session.ErrSessionFileMissing
+	}
+	s, err := session.ParseSessionTail(path, session.TailReadBytes*4)
+	if err != nil {
+		return nil, err
+	}
+	if s == nil || s.ID != id {
+		return nil, session.ErrSessionFileMissing
+	}
+	s.Source = nameClaude
+	return s, nil
+}
+
 func (claudeSource) GrepKeys(query string, regex bool) (map[string]struct{}, error) {
 	return grep.Filter(query, grep.Options{Regex: regex})
 }

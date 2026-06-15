@@ -115,6 +115,25 @@ func (a allSource) FindByID(id string) (*session.Session, error) {
 	return nil, session.ErrSessionFileMissing
 }
 
+func (a allSource) FindByLocator(id, locator string) (*session.Session, error) {
+	name, localLocator, ok := splitKey(locator)
+	if !ok {
+		return a.FindByID(id)
+	}
+	src, ok := a.sourceByName(name)
+	if !ok {
+		return nil, session.ErrSessionFileMissing
+	}
+	localID := id
+	if idName, idLocal, ok := splitKey(id); ok {
+		if idName != name {
+			return nil, session.ErrSessionFileMissing
+		}
+		localID = idLocal
+	}
+	return ResolveSession(src, localID, localLocator)
+}
+
 func (a allSource) GrepKeys(query string, regex bool) (map[string]struct{}, error) {
 	out := make(map[string]struct{})
 	for _, src := range a.sources {

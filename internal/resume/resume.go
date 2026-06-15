@@ -12,14 +12,18 @@ import (
 	"github.com/sorafujitani/ccsession/internal/source"
 )
 
+type Options struct {
+	Locator string
+}
+
 // Run resolves the original cwd for the given session id, chdirs into it,
 // and execs the source's resume command to fully replace the current process.
-func Run(id string) error {
+func Run(id string, opts Options) error {
 	src, err := source.FromEnv()
 	if err != nil {
 		return err
 	}
-	s, err := src.FindByID(id)
+	s, err := source.ResolveSession(src, id, opts.Locator)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionFileMissing) {
 			if strings.HasPrefix(id, "ses_") && src.Name() != "opencode" {
