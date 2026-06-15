@@ -52,6 +52,8 @@ type contentBlock struct {
 	Text string `json:"text"`
 }
 
+var parseSessionFile = parseFile
+
 func Open() (*Store, error) {
 	home, err := ResolveHome()
 	if err != nil {
@@ -84,15 +86,11 @@ func (s *Store) ScanFiltered(allow map[string]struct{}) ([]*session.Session, err
 }
 
 func (s *Store) FindByID(id string) (*session.Session, error) {
-	paths, err := s.representativePaths()
+	sessions, err := s.representativeSessions()
 	if err != nil {
 		return nil, err
 	}
-	for _, path := range paths {
-		sess, _, _, _, err := parseFile(path, false, 0)
-		if err != nil || sess == nil {
-			continue
-		}
+	for _, sess := range sessions {
 		if sess.ID == id {
 			return sess, nil
 		}
@@ -108,21 +106,17 @@ func (s *Store) GrepKeys(query string, regex bool) (map[string]struct{}, error) 
 	if err != nil {
 		return nil, err
 	}
-	paths, err := s.representativePaths()
+	sessions, err := s.representativeSessions()
 	if err != nil {
 		return nil, err
 	}
 	set := make(map[string]struct{})
-	for _, path := range paths {
-		sess, _, _, _, err := parseFile(path, false, 0)
-		if err != nil || sess == nil {
-			continue
-		}
+	for _, sess := range sessions {
 		if match(sess.Label) {
 			set[sess.ID] = struct{}{}
 			continue
 		}
-		ok, err := fileMessagesMatch(path, match)
+		ok, err := fileMessagesMatch(sess.JSONLPath, match)
 		if err != nil {
 			return nil, err
 		}
@@ -146,14 +140,13 @@ func (s *Store) Messages(sessionID string, limit int) ([]session.Message, time.T
 }
 
 func (s *Store) scanFiltered(allow map[string]struct{}) ([]*session.Session, error) {
-	paths, err := s.representativePaths()
+	sessions, err := s.representativeSessions()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*session.Session, 0, len(paths))
-	for _, path := range paths {
-		sess, _, _, _, err := parseFile(path, false, 0)
-		if err != nil || sess == nil || !allowed(allow, sess.ID) {
+	out := make([]*session.Session, 0, len(sessions))
+	for _, sess := range sessions {
+		if !allowed(allow, sess.ID) {
 			continue
 		}
 		out = append(out, sess)
@@ -191,15 +184,15 @@ func (s *Store) sessionPaths() ([]string, error) {
 	return paths, err
 }
 
-func (s *Store) representativePaths() ([]string, error) {
+func (s *Store) representativeSessions() ([]*session.Session, error) {
 	paths, err := s.sessionPaths()
 	if err != nil {
 		return nil, err
 	}
 	seen := make(map[string]struct{})
-	out := make([]string, 0, len(paths))
+	out := make([]*session.Session, 0, len(paths))
 	for _, path := range paths {
-		sess, _, _, _, err := parseFile(path, false, 0)
+		sess, _, _, _, err := parseSessionFile(path, false, 0)
 		if err != nil || sess == nil {
 			continue
 		}
@@ -207,7 +200,7 @@ func (s *Store) representativePaths() ([]string, error) {
 			continue
 		}
 		seen[sess.ID] = struct{}{}
-		out = append(out, path)
+		out = append(out, sess)
 	}
 	return out, nil
 }

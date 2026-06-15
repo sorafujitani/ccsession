@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/sorafujitani/ccsession/internal/session"
 )
 
 func TestScanReadsCodexSessionLayout(t *testing.T) {
@@ -80,6 +83,40 @@ func TestGrepKeysFeedScanFiltered(t *testing.T) {
 	}
 }
 
+func TestScanReusesRepresentativeSessionMetadata(t *testing.T) {
+	home, _, _ := fixture(t)
+	store := OpenAt(home)
+	calls := countParseCalls(t)
+
+	ss, err := store.Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 1 {
+		t.Fatalf("Scan returned %d sessions, want 1", len(ss))
+	}
+	if *calls != 1 {
+		t.Fatalf("parse calls = %d, want 1", *calls)
+	}
+}
+
+func TestGrepKeysReusesRepresentativeSessionMetadataForLabelMatch(t *testing.T) {
+	home, _, id := fixture(t)
+	store := OpenAt(home)
+	calls := countParseCalls(t)
+
+	keys, err := store.GrepKeys("last user asks", false)
+	if err != nil {
+		t.Fatalf("GrepKeys: %v", err)
+	}
+	if _, ok := keys[id]; !ok {
+		t.Fatalf("GrepKeys did not include %s: %#v", id, keys)
+	}
+	if *calls != 1 {
+		t.Fatalf("parse calls = %d, want 1", *calls)
+	}
+}
+
 func TestInternalUserContextIsHidden(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()
@@ -142,6 +179,30 @@ func TestScanSkipsDuplicateIDs(t *testing.T) {
 	}
 	if ss[0].Label != "first copy" {
 		t.Fatalf("Label = %q, want first copy", ss[0].Label)
+	}
+}
+
+func TestScanParsesDuplicateCandidatesOnce(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	id := "019ec14c-b49c-7a40-a386-0a1699dbb01c"
+	first := `{"timestamp":"2026-06-14T00:00:00Z","type":"session_meta","payload":{"id":"` + id + `","timestamp":"2026-06-14T00:00:00Z","cwd":"` + cwd + `"}}` + "\n" +
+		`{"timestamp":"2026-06-14T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first copy"}]}}` + "\n"
+	second := `{"timestamp":"2026-06-15T00:00:00Z","type":"session_meta","payload":{"id":"` + id + `","timestamp":"2026-06-15T00:00:00Z","cwd":"` + cwd + `"}}` + "\n" +
+		`{"timestamp":"2026-06-15T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"second copy"}]}}` + "\n"
+	writeSessionNamed(t, home, "2026/06/14/rollout-2026-06-14T00-00-00-"+id+".jsonl", first)
+	writeSessionNamed(t, home, "2026/06/15/rollout-2026-06-15T00-00-00-"+id+".jsonl", second)
+	calls := countParseCalls(t)
+
+	ss, err := OpenAt(home).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 1 || ss[0].Label != "first copy" {
+		t.Fatalf("Scan = %#v, want first representative only", ss)
+	}
+	if *calls != 2 {
+		t.Fatalf("parse calls = %d, want 2", *calls)
 	}
 }
 
@@ -282,4 +343,18 @@ func writeSessionNamed(t *testing.T, home, rel, body string) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write session: %v", err)
 	}
+}
+
+func countParseCalls(t *testing.T) *int {
+	t.Helper()
+	orig := parseSessionFile
+	calls := 0
+	parseSessionFile = func(path string, includeMessages bool, messageLimit int) (*session.Session, []session.Message, time.Time, int, error) {
+		calls++
+		return parseFile(path, includeMessages, messageLimit)
+	}
+	t.Cleanup(func() {
+		parseSessionFile = orig
+	})
+	return &calls
 }
