@@ -68,9 +68,10 @@ const usage = `ccsession - fzf frontend for agent session resume
 
 USAGE:
   ccsession [--all | --source <s>] [--exclude-dir <s>] # list -> fzf -> resume
-  ccsession list [--grep Q] [--exclude-dir S]         # TSV rows for fzf
-  ccsession preview <sessionId>   # preview pane content
-  ccsession resume  <sessionId>   # chdir to original cwd, exec the agent
+  ccsession list [--grep Q] [--exclude-dir S]         # TSV rows, or JSON with --json
+  ccsession preview [--locator L] <sessionId>     # preview pane content
+  ccsession resume-spec [--locator L] <sessionId> # print the resume target as JSON
+  ccsession resume  [--locator L] <sessionId>     # chdir to original cwd, exec the agent
 
   Global flags go before the subcommand (parsing stops at the first
   non-flag argument).
@@ -106,21 +107,25 @@ LIST FLAGS:
   --grep <query>      filter sessions by user/assistant content (fixed-string)
   --regex             treat --grep query as a regular expression
   --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive)
+  --json              emit a JSON array instead of fzf TSV rows
+  --limit <n>         keep only the first n rows after filtering (0 means all)
   --color <mode>      color output: auto (default) | always | never
   --no-color          shorthand for --color=never
 
 REQUIRES: fzf, selected agent CLI.
 `
 
-const listUsage = `ccsession list - emit TSV rows for fzf
+const listUsage = `ccsession list - emit session rows
 
 USAGE:
-  ccsession list [--grep <query>] [--regex] [--exclude-dir <s>] [--color <mode>] [--no-color]
+  ccsession list [--grep <query>] [--regex] [--exclude-dir <s>] [--json] [--limit <n>] [--color <mode>] [--no-color]
 
 FLAGS:
   --grep <query>      filter sessions by user/assistant content (fixed-string)
   --regex             treat --grep query as a regular expression
   --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive)
+  --json              emit a JSON array instead of fzf TSV rows
+  --limit <n>         keep only the first n rows after filtering (0 means all)
   --color <mode>      color output: auto (default) | always | never
                       "auto" emits ANSI only when stdout is a terminal
   --no-color          shorthand for --color=never
@@ -129,17 +134,30 @@ FLAGS:
 const previewUsage = `ccsession preview - render the preview pane for a session id
 
 USAGE:
-  ccsession preview [--query <query>] [--regex] <sessionId>
+  ccsession preview [--query <query>] [--regex] [--locator <locator>] <sessionId>
 
 FLAGS:
   --query <query>     highlight matches of <query> in the preview (fixed-string)
   --regex             treat --query as a regular expression
+  --locator <locator> opaque session locator from list output
 `
 
 const resumeUsage = `ccsession resume - chdir to the session's cwd and exec the selected agent
 
 USAGE:
-  ccsession resume <sessionId>
+  ccsession resume [--locator <locator>] <sessionId>
+
+FLAGS:
+  --locator <locator> opaque session locator from list output
+`
+
+const resumeSpecUsage = `ccsession resume-spec - print the resume target without launching it
+
+USAGE:
+  ccsession resume-spec [--locator <locator>] <sessionId>
+
+FLAGS:
+  --locator <locator> opaque session locator from list output
 `
 
 func main() {
@@ -165,6 +183,8 @@ func main() {
 		cmdList(args[1:])
 	case "preview":
 		cmdPreview(args[1:])
+	case "resume-spec":
+		cmdResumeSpec(args[1:])
 	case "resume":
 		cmdResume(args[1:])
 	case "-h", "--help", "help":
@@ -330,8 +350,14 @@ func cmdList(args []string) {
 	excludeDirFlag := fs.String("exclude-dir", os.Getenv(excludeDirEnv), "hide sessions whose cwd contains <s> (case-insensitive)")
 	colorFlag := fs.String("color", "auto", "color output: auto|always|never")
 	noColor := fs.Bool("no-color", false, "shorthand for --color=never")
+	jsonFlag := fs.Bool("json", false, "emit JSON instead of TSV")
+	limitFlag := fs.Int("limit", 0, "keep only the first n rows after filtering")
 	if err := fs.Parse(args); err != nil {
 		handleFlagError("list", fs, err)
+	}
+	if *limitFlag < 0 {
+		fmt.Fprintln(os.Stderr, "ccsession list: limit must be >= 0")
+		os.Exit(2)
 	}
 	if err := list.Run(list.Options{
 		Grep:       *grepFlag,
@@ -339,6 +365,8 @@ func cmdList(args []string) {
 		ExcludeDir: *excludeDirFlag,
 		Color:      *colorFlag,
 		NoColor:    *noColor,
+		JSON:       *jsonFlag,
+		Limit:      *limitFlag,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession list:", err)
 		os.Exit(1)
@@ -361,6 +389,24 @@ func cmdPreview(args []string) {
 	}
 	if err := preview.Run(rest[0], preview.Options{Query: *queryFlag, Regex: *regexFlag, Locator: *locatorFlag}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession preview:", err)
+		os.Exit(1)
+	}
+}
+
+func cmdResumeSpec(args []string) {
+	fs := newFlagSet("resume-spec", resumeSpecUsage)
+	locatorFlag := fs.String("locator", "", "opaque session locator from list output")
+	if err := fs.Parse(args); err != nil {
+		handleFlagError("resume-spec", fs, err)
+	}
+	rest := fs.Args()
+	if len(rest) < 1 {
+		fmt.Fprintln(os.Stderr, "ccsession resume-spec: session id required")
+		fs.Usage()
+		os.Exit(2)
+	}
+	if err := resume.RunSpec(rest[0], resume.Options{Locator: *locatorFlag}); err != nil {
+		fmt.Fprintln(os.Stderr, "ccsession resume-spec:", err)
 		os.Exit(1)
 	}
 }

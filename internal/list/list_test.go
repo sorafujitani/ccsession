@@ -2,12 +2,16 @@ package list
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sorafujitani/ccsession/internal/ansi"
 	"github.com/sorafujitani/ccsession/internal/session"
+	"github.com/sorafujitani/ccsession/internal/source"
 )
 
 func TestFormatLine_NoColor(t *testing.T) {
@@ -187,6 +191,56 @@ func TestColorEnabled(t *testing.T) {
 			t.Error("non-*os.File Out should default to no color")
 		}
 	})
+}
+
+func TestRun_JSONLimit(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(source.EnvVar, "")
+	writeListSession(t, home, cwd, "11111111-1111-1111-1111-111111111111", "2026-05-26T10:00:00Z", "older")
+	writeListSession(t, home, cwd, "22222222-2222-2222-2222-222222222222", "2026-05-26T11:00:00Z", "newer")
+
+	var buf bytes.Buffer
+	if err := Run(Options{JSON: true, Limit: 1, Out: &buf}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	var rows []JSONSession
+	if err := json.Unmarshal(buf.Bytes(), &rows); err != nil {
+		t.Fatalf("json.Unmarshal: %v\n%s", err, buf.String())
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1: %#v", len(rows), rows)
+	}
+	row := rows[0]
+	if row.ID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("id = %q, want newest session", row.ID)
+	}
+	if row.Source != "claude" {
+		t.Errorf("source = %q, want claude", row.Source)
+	}
+	if row.CWD != cwd || !row.CWDExists || row.CWDUnknown {
+		t.Errorf("cwd fields = cwd:%q exists:%v unknown:%v", row.CWD, row.CWDExists, row.CWDUnknown)
+	}
+	if row.Label != "newer" || row.LastActivity != "2026-05-26T11:00:00Z" {
+		t.Errorf("metadata = label:%q last:%q", row.Label, row.LastActivity)
+	}
+	if row.Locator == "" {
+		t.Error("locator is empty")
+	}
+}
+
+func writeListSession(t *testing.T, home, cwd, id, ts, label string) {
+	t.Helper()
+	dir := filepath.Join(home, ".claude", "projects", "-proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := `{"type":"user","timestamp":"` + ts + `","cwd":"` + cwd + `","message":{"role":"user","content":"` + label + `"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, id+".jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
 }
 
 func TestFilterOutByDir(t *testing.T) {
