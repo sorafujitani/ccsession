@@ -2,6 +2,7 @@ package list
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -25,7 +26,22 @@ type Options struct {
 	// Color overrides auto-detection: "always", "never", or "" (auto).
 	// --no-color and NO_COLOR still force off when Color is empty/auto.
 	Color string
+	JSON  bool
+	Limit int
 	Out   io.Writer
+}
+
+type JSONSession struct {
+	Source       string `json:"source"`
+	ID           string `json:"id"`
+	Locator      string `json:"locator"`
+	CWD          string `json:"cwd"`
+	CWDBasename  string `json:"cwd_basename"`
+	Label        string `json:"label"`
+	LastEpoch    int64  `json:"last_epoch"`
+	LastActivity string `json:"last_activity"`
+	CWDExists    bool   `json:"cwd_exists"`
+	CWDUnknown   bool   `json:"cwd_unknown"`
 }
 
 // Run scans sessions, optionally filters them by grep query, and writes
@@ -45,6 +61,15 @@ func Run(opts Options) error {
 	if needle := strings.TrimSpace(opts.ExcludeDir); needle != "" {
 		sessions = filterOutByDir(sessions, needle)
 	}
+	if opts.Limit < 0 {
+		return fmt.Errorf("limit must be >= 0")
+	}
+	if opts.Limit > 0 && len(sessions) > opts.Limit {
+		sessions = sessions[:opts.Limit]
+	}
+	if opts.JSON {
+		return writeJSON(sessions, opts.Out)
+	}
 	color := colorEnabled(opts)
 	now := time.Now()
 	w := bufio.NewWriter(opts.Out)
@@ -55,6 +80,34 @@ func Run(opts Options) error {
 		}
 	}
 	return nil
+}
+
+func writeJSON(sessions []*session.Session, out io.Writer) error {
+	rows := make([]JSONSession, 0, len(sessions))
+	for _, s := range sessions {
+		rows = append(rows, jsonSession(s))
+	}
+	enc := json.NewEncoder(out)
+	return enc.Encode(rows)
+}
+
+func jsonSession(s *session.Session) JSONSession {
+	lastActivity := ""
+	if !s.LastTime.IsZero() {
+		lastActivity = s.LastTime.Format(time.RFC3339)
+	}
+	return JSONSession{
+		Source:       s.Source,
+		ID:           s.ID,
+		Locator:      source.LocatorFor(s),
+		CWD:          s.CWD,
+		CWDBasename:  s.CWDBasename,
+		Label:        s.Label,
+		LastEpoch:    s.LastEpoch,
+		LastActivity: lastActivity,
+		CWDExists:    s.CWDExists,
+		CWDUnknown:   s.CWDUnknown,
+	}
 }
 
 // colorEnabled decides whether to emit ANSI escapes.

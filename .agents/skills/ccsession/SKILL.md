@@ -17,24 +17,24 @@ Do not duplicate ccsession's search, preview, or resume logic. Drive the CLI, su
 2. Search before previewing. Prefer content search when the user gives a topic or issue:
 
    ```sh
-   ccsession list --grep "<query>" --color=never
+   ccsession list --json --grep "<query>" --limit 5
    ```
 
    If the intent is a repository, working directory, or time period rather than transcript text, start from the plain list and narrow the candidate set from the metadata:
 
    ```sh
-   ccsession list --color=never
+   ccsession list --json --limit 10
    ```
 
    Put global source flags before the subcommand:
 
    ```sh
-   ccsession --codex list --grep "<query>" --color=never
-   ccsession --source all list --grep "<query>" --color=never
+   ccsession --codex list --json --grep "<query>" --limit 5
+   ccsession --source all list --json --grep "<query>" --limit 5
    ```
 
    Repeat the same source selector on preview and resume commands. Global source flags affect only that `ccsession` process and the fzf children it starts.
-3. Present a small candidate set instead of dumping raw output. Include source when known, session id, locator if available, cwd or cwd basename, label/title, last activity, why it matched, and a match snippet when the CLI provides one. Current TSV output has no snippet column; use preview to inspect the match text.
+3. Present a small candidate set instead of dumping raw output. Include source, session id, locator, cwd or cwd basename, label/title, last activity, why it matched, and a match snippet when the CLI provides one. Current JSON output has no snippet field; use preview to inspect the match text.
 4. Preview the selected candidate before recommending resume:
 
    ```sh
@@ -42,7 +42,7 @@ Do not duplicate ccsession's search, preview, or resume logic. Drive the CLI, su
    ccsession --source all preview --query "<query>" "<session-id>"
    ```
 
-   If `ccsession list` produced a locator column, preserve it and use:
+   If `ccsession list --json` produced a locator field, preserve it and use:
 
    ```sh
    ccsession preview --locator "<locator>" --query "<query>" "<session-id>"
@@ -50,8 +50,15 @@ Do not duplicate ccsession's search, preview, or resume logic. Drive the CLI, su
    ```
 
 5. After previewing, explain whether the session appears relevant. Keep the distinction clear: previewing only reads past context; resuming launches the underlying agent CLI in the recorded working directory.
-6. Ask for explicit confirmation before running `ccsession resume` or the interactive picker (`ccsession` with no subcommand). Do not infer confirmation from the user's interest in a candidate.
-7. Run resume only after confirmation:
+6. Show the non-launching resume target before asking for confirmation:
+
+   ```sh
+   ccsession resume-spec "<session-id>"
+   ccsession --source all resume-spec --locator "<locator>" "<session-id>"
+   ```
+
+7. Ask for explicit confirmation before running `ccsession resume` or the interactive picker (`ccsession` with no subcommand). Do not infer confirmation from the user's interest in a candidate.
+8. Run resume only after confirmation:
 
    ```sh
    ccsession resume "<session-id>"
@@ -65,23 +72,19 @@ Do not duplicate ccsession's search, preview, or resume logic. Drive the CLI, su
    ccsession --source all resume --locator "<locator>" "<session-id>"
    ```
 
-## Current CLI Shape
+## CLI Shape
 
-Current `ccsession list` output is TSV intended for fzf. Treat it as the current integration path only, and disable color when parsing:
-
-```text
-session id<TAB>locator<TAB>last epoch<TAB>relative time<TAB>cwd basename<TAB>label
-```
-
-Use `--regex` only when the user asks for regex semantics or a fixed-string query is insufficient. Use `--exclude-dir <text>` when noisy directories obscure the result.
-
-## Preferred Future Shape
-
-Once available, prefer structured and non-launching commands over TSV parsing and direct resume launch:
+Prefer structured JSON for agent workflows:
 
 ```sh
 ccsession list --json --grep "<query>" --limit 5
 ccsession resume-spec "<session-id>"
 ```
 
-Use a non-launching resume-spec command to show the exact backend, cwd, binary, and arguments before asking the user whether to launch the interactive resume.
+Plain `ccsession list` output is TSV intended for fzf:
+
+```text
+session id<TAB>locator<TAB>last epoch<TAB>relative time<TAB>cwd basename<TAB>label
+```
+
+Use `--regex` only when the user asks for regex semantics or a fixed-string query is insufficient. Use `--exclude-dir <text>` when noisy directories obscure the result.

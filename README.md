@@ -98,7 +98,9 @@ ccsession                            # list -> fzf -> resume
 ccsession --grok                     # use Grok sessions from ~/.grok/sessions
 ccsession --codex                    # use Codex sessions from ~/.codex/sessions
 ccsession list  [--grep Q] [--regex] # emit TSV rows to stdout
+ccsession list --json --grep Q --limit 5 # emit structured rows for agents
 ccsession preview [--query Q] [--regex] <id> # render the preview pane (Q highlighted)
+ccsession resume-spec <id>           # print the resume target without launching it
 ccsession resume  <id>               # chdir to the session's cwd, exec the selected agent
 ccsession --version
 ccsession --help
@@ -156,13 +158,17 @@ ccsession exits with an error instead of starting the picker.
 
 1. `ccsession list` reads the selected backend (`~/.claude/projects/*/` by
    default, or `--source=opencode` / `--source=grok` / `--source=codex`) and prints one TSV row
-   per session (`id`, `epoch`, relative time, cwd basename, label).
+   per session (`id`, `locator`, `epoch`, relative time, cwd basename, label).
+   `ccsession list --json --limit N` emits the same candidates as a JSON array
+   for agent integrations.
 2. `fzf` consumes the TSV. The three key bindings swap fzf's matcher
    between fuzzy mode, directory-only mode, and grep mode (which reloads
    via `ccsession list --grep <query>` on every keystroke). The current
    query is also forwarded to the preview as `ccsession preview --query
    <query> <id>`, which highlights its matches in the rendered messages.
-3. On `Enter`, `ccsession resume <id>` resolves the session's original
+3. `ccsession resume-spec <id>` resolves the same target as `resume` and prints
+   the source, cwd, binary, and arguments as JSON without launching anything.
+4. On `Enter`, `ccsession resume <id>` resolves the session's original
    `cwd`, `chdir`s into it, and `execve`s the selected agent's resume command
    so the resumed process fully replaces the picker.
 
