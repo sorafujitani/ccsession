@@ -106,6 +106,83 @@ ccsession --version
 ccsession --help
 ```
 
+## Agent Skill
+
+This repository ships a Codex Agent Skill at
+`.agents/skills/ccsession`. Use `$ccsession` when you want an agent to recover
+prior context, compare historical sessions, preview a likely match, or hand off
+to a previous local agent session.
+
+When Codex is working from this repository checkout, Codex discovers the
+repo-local skill from `.agents/skills/ccsession`. Invoke it explicitly with
+`$ccsession` or ask for the same workflow in natural language, for example:
+
+```text
+Use $ccsession to find the session where we worked on issue 84.
+```
+
+If you installed only the `ccsession` binary and want the skill available from
+other repositories, install it with the `skills` CLI:
+
+```sh
+npx skills add sorafujitani/ccsession --skill ccsession -a codex
+```
+
+For a user-wide install:
+
+```sh
+npx skills add sorafujitani/ccsession --skill ccsession -a codex -g
+```
+
+When developing from a local checkout, install from the current directory:
+
+```sh
+npx skills add . --skill ccsession -a codex
+```
+
+Start a new Codex session after installing or updating the skill so the skill
+metadata is reloaded. The skill assumes the `ccsession` binary is on `PATH`.
+
+The skill teaches agents to use `ccsession` in a read-first workflow:
+
+1. Search candidates with structured output:
+
+   ```sh
+   ccsession list --json --grep "<query>" --limit 5
+   ```
+
+   Use a source selector when the target backend is known:
+
+   ```sh
+   ccsession --codex list --json --grep "<query>" --limit 5
+   ccsession --source all list --json --grep "<query>" --limit 5
+   ```
+
+2. Summarize a small candidate set for the user. The JSON rows include
+   `source`, `id`, `locator`, `cwd`, `cwd_basename`, `label`,
+   `last_activity`, `cwd_exists`, and `cwd_unknown`.
+3. Preview the selected candidate before recommending resume:
+
+   ```sh
+   ccsession preview --locator "<locator>" --query "<query>" "<id>"
+   ```
+
+4. Show the non-launching handoff target:
+
+   ```sh
+   ccsession resume-spec --locator "<locator>" "<id>"
+   ```
+
+   `resume-spec` prints the selected backend, working directory, binary, and
+   arguments as JSON. It does not start an interactive process.
+5. Run `ccsession resume --locator "<locator>" "<id>"` only after explicit user
+   confirmation. `resume` changes into the recorded `cwd` and `exec`s the
+   selected agent CLI, replacing the current process.
+
+When using `--source`, repeat the same source selector on `list`, `preview`,
+`resume-spec`, and `resume`; global flags apply only to that `ccsession`
+process and the fzf children it starts.
+
 ### Keys inside fzf
 
 | Key      | Mode |
