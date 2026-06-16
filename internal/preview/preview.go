@@ -21,8 +21,9 @@ import (
 // matches in the message bodies; Regex treats Query as a regular expression
 // (mirroring grep.Options).
 type Options struct {
-	Query string
-	Regex bool
+	Query   string
+	Regex   bool
+	Locator string
 }
 
 const (
@@ -47,7 +48,7 @@ func Run(id string, opts Options) error {
 	if err != nil {
 		return err
 	}
-	s, err := src.FindByID(id)
+	s, err := source.ResolveSession(src, id, opts.Locator)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionFileMissing) {
 			return fmt.Errorf("session not found: %s", id)

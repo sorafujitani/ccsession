@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -61,14 +62,23 @@ func TestBuildScriptCustom(t *testing.T) {
 func TestBuildScriptPassesHiddenKeyToPreviewAndResume(t *testing.T) {
 	got := buildScript(config.Defaults(), "all")
 	wants := []string{
-		`--preview "$CCSESSION_BIN preview --query {q} {1}"`,
-		`| awk -F'\t' '{print $1}')`,
-		`exec "$CCSESSION_BIN" resume "$id"`,
+		`--with-nth=4,5,6`,
+		`--preview "$CCSESSION_BIN preview --locator {2} --query {q} {1}"`,
+		`IFS=$'\t' read -r id locator _rest <<< "$selected"`,
+		`exec "$CCSESSION_BIN" resume --locator "$locator" "$id"`,
 	}
 	for _, w := range wants {
 		if !strings.Contains(got, w) {
 			t.Errorf("buildScript(all) missing %q", w)
 		}
+	}
+}
+
+func TestBuildScriptIsValidBash(t *testing.T) {
+	cmd := exec.Command("bash", "-n")
+	cmd.Stdin = strings.NewReader(buildScript(config.Defaults(), "claude"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("bash -n failed: %v\n%s", err, out)
 	}
 }
 

@@ -63,6 +63,14 @@ func (o opencodeSource) FindByID(id string) (*session.Session, error) {
 	return s, err
 }
 
+func (o opencodeSource) FindByLocator(id, locator string) (*session.Session, error) {
+	gotID, ok := decodeLocator(locator)
+	if !ok || gotID != id {
+		return nil, session.ErrSessionFileMissing
+	}
+	return o.FindByID(id)
+}
+
 func (o opencodeSource) GrepKeys(query string, regex bool) (map[string]struct{}, error) {
 	return o.db.GrepKeys(query, regex)
 }

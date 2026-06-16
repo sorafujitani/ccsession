@@ -3,6 +3,7 @@ package source
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sorafujitani/ccsession/internal/codex"
@@ -314,6 +315,51 @@ func TestAllSource_FindByIDAndResumeRouteByCompositeKey(t *testing.T) {
 	}
 }
 
+func TestLocatorForEncodesPathAndPrefixesCompositeID(t *testing.T) {
+	s := &session.Session{
+		ID:        "codex:abc",
+		Source:    "codex",
+		JSONLPath: "/tmp/path\twith-tab/session.jsonl",
+	}
+	locator := LocatorFor(s)
+	name, encoded, ok := splitKey(locator)
+	if !ok {
+		t.Fatalf("LocatorFor = %q, want source-prefixed locator", locator)
+	}
+	if name != "codex" {
+		t.Fatalf("locator source = %q, want codex", name)
+	}
+	got, ok := decodeLocator(encoded)
+	if !ok {
+		t.Fatalf("locator payload did not decode: %q", encoded)
+	}
+	if got != s.JSONLPath {
+		t.Fatalf("decoded locator = %q, want %q", got, s.JSONLPath)
+	}
+	if strings.ContainsAny(locator, "\t\n\r") {
+		t.Fatalf("locator contains row-breaking control char: %q", locator)
+	}
+}
+
+func TestAllSource_FindByLocatorRoutesCompositeLocator(t *testing.T) {
+	src := allSource{sources: []Source{
+		fakeSource{name: "claude", sessions: []*session.Session{
+			{ID: "same", Source: "claude", JSONLPath: "/claude/path.jsonl"},
+		}},
+		fakeSource{name: "codex", sessions: []*session.Session{
+			{ID: "same", Source: "codex", JSONLPath: "/codex/path.jsonl"},
+		}},
+	}}
+
+	s, err := src.FindByLocator("codex:same", joinKey("codex", encodeLocator("/codex/path.jsonl")))
+	if err != nil {
+		t.Fatalf("FindByLocator: %v", err)
+	}
+	if s.ID != "same" || s.Source != "codex" {
+		t.Fatalf("FindByLocator returned %+v, want codex real ID", s)
+	}
+}
+
 type fakeSource struct {
 	name      string
 	sessions  []*session.Session
@@ -346,6 +392,20 @@ func (f fakeSource) ScanFiltered(allow map[string]struct{}) ([]*session.Session,
 func (f fakeSource) FindByID(id string) (*session.Session, error) {
 	for _, s := range f.sessions {
 		if s.ID == id {
+			cp := *s
+			return &cp, nil
+		}
+	}
+	return nil, session.ErrSessionFileMissing
+}
+
+func (f fakeSource) FindByLocator(id, locator string) (*session.Session, error) {
+	raw, ok := decodeLocator(locator)
+	if !ok {
+		return nil, session.ErrSessionFileMissing
+	}
+	for _, s := range f.sessions {
+		if s.ID == id && (s.JSONLPath == raw || s.ID == raw) {
 			cp := *s
 			return &cp, nil
 		}

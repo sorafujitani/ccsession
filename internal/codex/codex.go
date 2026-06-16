@@ -98,6 +98,17 @@ func (s *Store) FindByID(id string) (*session.Session, error) {
 	return nil, session.ErrSessionFileMissing
 }
 
+func (s *Store) FindByLocator(id, path string) (*session.Session, error) {
+	sess, _, _, _, err := parseSessionFile(path, false, 0)
+	if err != nil {
+		return nil, err
+	}
+	if sess == nil || sess.ID != id {
+		return nil, session.ErrSessionFileMissing
+	}
+	return sess, nil
+}
+
 func (s *Store) GrepKeys(query string, regex bool) (map[string]struct{}, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
@@ -131,6 +142,13 @@ func (s *Store) Messages(sessionID string, limit int) ([]session.Message, time.T
 	sess, err := s.FindByID(sessionID)
 	if err != nil {
 		return nil, time.Time{}, 0, err
+	}
+	return s.MessagesForSession(sess, limit)
+}
+
+func (s *Store) MessagesForSession(sess *session.Session, limit int) ([]session.Message, time.Time, int, error) {
+	if sess == nil || sess.JSONLPath == "" {
+		return nil, time.Time{}, 0, session.ErrSessionFileMissing
 	}
 	_, msgs, startedAt, total, err := parseFile(sess.JSONLPath, true, limit)
 	if err != nil {

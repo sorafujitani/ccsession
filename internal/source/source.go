@@ -29,6 +29,19 @@ type Source interface {
 	ResumeSpec(s *session.Session) (bin string, args []string, err error)
 }
 
+type LocatorFinder interface {
+	FindByLocator(id, locator string) (*session.Session, error)
+}
+
+func ResolveSession(src Source, id, locator string) (*session.Session, error) {
+	if locator != "" {
+		if lf, ok := src.(LocatorFinder); ok {
+			return lf.FindByLocator(id, locator)
+		}
+	}
+	return src.FindByID(id)
+}
+
 func FromEnv() (Source, error) {
 	return forName(os.Getenv(EnvVar))
 }
