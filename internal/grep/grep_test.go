@@ -1,13 +1,16 @@
 package grep
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-func makeProjects(t *testing.T) string {
+func makeProjects(t testing.TB) string {
 	t.Helper()
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".claude", "projects"), 0o755); err != nil {
@@ -17,7 +20,7 @@ func makeProjects(t *testing.T) string {
 	return filepath.Join(home, ".claude", "projects")
 }
 
-func writeFile(t *testing.T, path, body string) {
+func writeFile(t testing.TB, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -206,4 +209,88 @@ func TestFilter_RegexInvalidReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid regex, got nil")
 	}
+}
+
+func TestFilter_CacheInvalidatesOnFileUpdate(t *testing.T) {
+	t.Setenv(EnvCacheDir, t.TempDir())
+	projects := makeProjects(t)
+	p := filepath.Join(projects, "-p", "a.jsonl")
+	firstTime := time.Unix(1_800_000_000, 0)
+	secondTime := firstTime.Add(time.Second)
+	writeFile(t, p, `{"type":"user","message":{"role":"user","content":"needle"}}`+"\n")
+	if err := os.Chtimes(p, firstTime, firstTime); err != nil {
+		t.Fatalf("chtimes first: %v", err)
+	}
+
+	set, err := Filter("needle", Options{})
+	if err != nil {
+		t.Fatalf("first Filter: %v", err)
+	}
+	if _, ok := set[p]; !ok {
+		t.Fatalf("first Filter missed %s", p)
+	}
+
+	writeFile(t, p, `{"type":"user","message":{"role":"user","content":"updated"}}`+"\n")
+	if err := os.Chtimes(p, secondTime, secondTime); err != nil {
+		t.Fatalf("chtimes second: %v", err)
+	}
+	set, err = Filter("needle", Options{})
+	if err != nil {
+		t.Fatalf("second Filter: %v", err)
+	}
+	if _, ok := set[p]; ok {
+		t.Fatalf("second Filter used stale cache: %#v", set)
+	}
+}
+
+func BenchmarkFilterRepeatedQuery(b *testing.B) {
+	for _, tc := range []struct {
+		name     string
+		cacheDir string
+		warm     bool
+	}{
+		{name: "direct-read"},
+		{name: "warm-cache", cacheDir: b.TempDir(), warm: true},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			if tc.cacheDir == "" {
+				blocker := filepath.Join(b.TempDir(), "not-a-dir")
+				writeFile(b, blocker, "cache dir blocker")
+				b.Setenv(EnvCacheDir, blocker)
+			} else {
+				b.Setenv(EnvCacheDir, tc.cacheDir)
+			}
+			writeBenchmarkProjects(b)
+			if tc.warm {
+				if _, err := Filter("needle", Options{}); err != nil {
+					b.Fatalf("warm Filter: %v", err)
+				}
+			}
+
+			b.ResetTimer()
+			for range b.N {
+				if _, err := Filter("needle", Options{}); err != nil {
+					b.Fatalf("Filter: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func writeBenchmarkProjects(b *testing.B) {
+	b.Helper()
+	projects := makeProjects(b)
+	for i := range 64 {
+		body := strings.Repeat("ordinary transcript text\n", 128)
+		if i%8 == 0 {
+			body += "needle\n"
+		}
+		p := filepath.Join(projects, "-p", fmt.Sprintf("session-%02d.jsonl", i))
+		writeFile(b, p, `{"type":"user","message":{"role":"user","content":`+quoteJSON(body)+`}}`+"\n")
+	}
+}
+
+func quoteJSON(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

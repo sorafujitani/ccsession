@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sorafujitani/ccsession/internal/grep"
 )
 
 func TestScanReadsSummaryLayout(t *testing.T) {
@@ -62,6 +64,7 @@ func TestFindByIDAndMessages(t *testing.T) {
 }
 
 func TestGrepKeysFeedScanFiltered(t *testing.T) {
+	t.Setenv(grep.EnvCacheDir, t.TempDir())
 	home, _, id := fixture(t)
 	store := OpenAt(home)
 

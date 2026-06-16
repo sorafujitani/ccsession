@@ -318,26 +318,27 @@ func parseMessagePayload(raw json.RawMessage, ts time.Time) (session.Message, bo
 }
 
 func fileMessagesMatch(path string, match func(string) bool) (bool, error) {
+	return grep.FileContains(path, match, fileMessageTexts)
+}
+
+func fileMessageTexts(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	defer f.Close()
-	hit := false
+	var texts []string
 	err = scanJSONLLines(f, func(line []byte) {
-		if hit {
-			return
-		}
 		var e entry
 		if err := json.Unmarshal(line, &e); err != nil || e.Type != "response_item" {
 			return
 		}
 		msg, ok := parseMessagePayload(e.Payload, time.Time{})
-		if ok && match(msg.Body) {
-			hit = true
+		if ok {
+			texts = append(texts, msg.Body)
 		}
 	})
-	return hit, err
+	return texts, err
 }
 
 func appendMessage(msgs []session.Message, msg session.Message, total, limit int) []session.Message {

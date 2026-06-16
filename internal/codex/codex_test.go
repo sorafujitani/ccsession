@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sorafujitani/ccsession/internal/grep"
 	"github.com/sorafujitani/ccsession/internal/session"
 )
 
@@ -64,6 +65,7 @@ func TestFindByIDAndMessages(t *testing.T) {
 }
 
 func TestGrepKeysFeedScanFiltered(t *testing.T) {
+	t.Setenv(grep.EnvCacheDir, t.TempDir())
 	home, _, id := fixture(t)
 	store := OpenAt(home)
 
@@ -101,6 +103,7 @@ func TestScanReusesRepresentativeSessionMetadata(t *testing.T) {
 }
 
 func TestGrepKeysReusesRepresentativeSessionMetadataForLabelMatch(t *testing.T) {
+	t.Setenv(grep.EnvCacheDir, t.TempDir())
 	home, _, id := fixture(t)
 	store := OpenAt(home)
 	calls := countParseCalls(t)
@@ -118,6 +121,7 @@ func TestGrepKeysReusesRepresentativeSessionMetadataForLabelMatch(t *testing.T) 
 }
 
 func TestInternalUserContextIsHidden(t *testing.T) {
+	t.Setenv(grep.EnvCacheDir, t.TempDir())
 	home := t.TempDir()
 	cwd := t.TempDir()
 	id := "019ec14c-b49c-7a40-a386-0a1699dbb01c"
@@ -207,6 +211,7 @@ func TestScanParsesDuplicateCandidatesOnce(t *testing.T) {
 }
 
 func TestGrepIgnoresDuplicateIDNonRepresentative(t *testing.T) {
+	t.Setenv(grep.EnvCacheDir, t.TempDir())
 	home := t.TempDir()
 	cwd := t.TempDir()
 	id := "019ec14c-b49c-7a40-a386-0a1699dbb01c"
