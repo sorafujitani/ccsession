@@ -132,7 +132,9 @@ Here `--skill ccsession` selects this skill from the repository, and
 `-a codex` tells the installer to link it for Codex. The skill itself is still
 the standard Agent Skills directory format: a folder with `SKILL.md` plus
 optional resources. The agent-specific part is discovery and installation
-location, not the workflow instructions.
+location, not the workflow instructions. If you omit `-a codex`, the `skills`
+CLI detects installed agents and may prompt you to choose where to install; the
+README uses `-a codex` so the command is deterministic.
 
 For a user-wide install:
 
