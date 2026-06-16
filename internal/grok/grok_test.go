@@ -2,13 +2,17 @@ package grok
 
 import (
 	"bufio"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sorafujitani/ccsession/internal/grep"
+	"github.com/sorafujitani/ccsession/internal/session"
 )
 
 func TestScanReadsSummaryLayout(t *testing.T) {
@@ -146,6 +150,43 @@ func TestScanSinksFutureUpdatedAt(t *testing.T) {
 	}
 }
 
+func TestScanReadsSummariesInParallel(t *testing.T) {
+	home := t.TempDir()
+	for i := range 12 {
+		id := fmt.Sprintf("parallel-%02d", i)
+		writeSummaryOnly(t, home, id, "/tmp/"+id, "2026-06-13T14:04:51.248996Z")
+	}
+	orig := readSummaryFile
+	var active atomic.Int32
+	var maxActive atomic.Int32
+	readSummaryFile = func(s *Store, path string) (*session.Session, error) {
+		current := active.Add(1)
+		for {
+			maxSeen := maxActive.Load()
+			if current <= maxSeen || maxActive.CompareAndSwap(maxSeen, current) {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+		defer active.Add(-1)
+		return s.readSummary(path)
+	}
+	t.Cleanup(func() {
+		readSummaryFile = orig
+	})
+
+	ss, err := OpenAt(home).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 12 {
+		t.Fatalf("Scan returned %d sessions, want 12", len(ss))
+	}
+	if maxActive.Load() < 2 {
+		t.Fatalf("max concurrent summary reads = %d, want at least 2", maxActive.Load())
+	}
+}
+
 func TestReadJSONLLineSkipsOversizeLine(t *testing.T) {
 	r := bufio.NewReader(strings.NewReader(strings.Repeat("x", 10) + "\n" + `{"ok":true}` + "\n"))
 
@@ -177,7 +218,7 @@ func TestResolveHomeHonorsGrokHome(t *testing.T) {
 	}
 }
 
-func writeSummaryOnly(t *testing.T, home, id, cwd, updatedAt string) {
+func writeSummaryOnly(t testing.TB, home, id, cwd, updatedAt string) {
 	t.Helper()
 	dir := filepath.Join(home, "sessions", url.PathEscape(cwd), id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -228,4 +269,23 @@ func fixture(t *testing.T) (home, cwd, id string) {
 		t.Fatalf("write updates: %v", err)
 	}
 	return home, cwd, id
+}
+
+func BenchmarkScanManySessions(b *testing.B) {
+	home := b.TempDir()
+	for i := range 512 {
+		id := fmt.Sprintf("bench-%04d", i)
+		writeSummaryOnly(b, home, id, "/tmp/"+id, "2026-06-13T14:04:51.248996Z")
+	}
+	store := OpenAt(home)
+	b.ResetTimer()
+	for range b.N {
+		ss, err := store.Scan()
+		if err != nil {
+			b.Fatalf("Scan: %v", err)
+		}
+		if len(ss) != 512 {
+			b.Fatalf("Scan returned %d sessions, want 512", len(ss))
+		}
+	}
 }

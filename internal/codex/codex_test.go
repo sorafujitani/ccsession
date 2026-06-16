@@ -2,9 +2,11 @@ package codex
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -97,8 +99,8 @@ func TestScanReusesRepresentativeSessionMetadata(t *testing.T) {
 	if len(ss) != 1 {
 		t.Fatalf("Scan returned %d sessions, want 1", len(ss))
 	}
-	if *calls != 1 {
-		t.Fatalf("parse calls = %d, want 1", *calls)
+	if calls.Load() != 1 {
+		t.Fatalf("parse calls = %d, want 1", calls.Load())
 	}
 }
 
@@ -115,8 +117,8 @@ func TestGrepKeysReusesRepresentativeSessionMetadataForLabelMatch(t *testing.T) 
 	if _, ok := keys[id]; !ok {
 		t.Fatalf("GrepKeys did not include %s: %#v", id, keys)
 	}
-	if *calls != 1 {
-		t.Fatalf("parse calls = %d, want 1", *calls)
+	if calls.Load() != 1 {
+		t.Fatalf("parse calls = %d, want 1", calls.Load())
 	}
 }
 
@@ -205,8 +207,48 @@ func TestScanParsesDuplicateCandidatesOnce(t *testing.T) {
 	if len(ss) != 1 || ss[0].Label != "first copy" {
 		t.Fatalf("Scan = %#v, want first representative only", ss)
 	}
-	if *calls != 2 {
-		t.Fatalf("parse calls = %d, want 2", *calls)
+	if calls.Load() != 2 {
+		t.Fatalf("parse calls = %d, want 2", calls.Load())
+	}
+}
+
+func TestRepresentativeSessionsParsesInParallel(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	for i := range 12 {
+		id := fmt.Sprintf("parallel-%02d", i)
+		body := `{"timestamp":"2026-06-14T00:00:00Z","type":"session_meta","payload":{"id":"` + id + `","timestamp":"2026-06-14T00:00:00Z","cwd":"` + cwd + `"}}` + "\n" +
+			`{"timestamp":"2026-06-14T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"` + id + `"}]}}` + "\n"
+		writeSessionNamed(t, home, fmt.Sprintf("2026/06/14/%s.jsonl", id), body)
+	}
+	orig := parseSessionFile
+	var active atomic.Int32
+	var maxActive atomic.Int32
+	parseSessionFile = func(path string, includeMessages bool, messageLimit int) (*session.Session, []session.Message, time.Time, int, error) {
+		current := active.Add(1)
+		for {
+			maxSeen := maxActive.Load()
+			if current <= maxSeen || maxActive.CompareAndSwap(maxSeen, current) {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+		defer active.Add(-1)
+		return parseFile(path, includeMessages, messageLimit)
+	}
+	t.Cleanup(func() {
+		parseSessionFile = orig
+	})
+
+	ss, err := OpenAt(home).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 12 {
+		t.Fatalf("Scan returned %d sessions, want 12", len(ss))
+	}
+	if maxActive.Load() < 2 {
+		t.Fatalf("max concurrent parses = %d, want at least 2", maxActive.Load())
 	}
 }
 
@@ -334,12 +376,12 @@ func fixture(t *testing.T) (home, cwd, id string) {
 	return home, cwd, id
 }
 
-func writeSession(t *testing.T, home, id, body string) {
+func writeSession(t testing.TB, home, id, body string) {
 	t.Helper()
 	writeSessionNamed(t, home, "2026/06/14/rollout-2026-06-14T00-00-00-"+id+".jsonl", body)
 }
 
-func writeSessionNamed(t *testing.T, home, rel, body string) {
+func writeSessionNamed(t testing.TB, home, rel, body string) {
 	t.Helper()
 	path := filepath.Join(home, "sessions", filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -350,16 +392,38 @@ func writeSessionNamed(t *testing.T, home, rel, body string) {
 	}
 }
 
-func countParseCalls(t *testing.T) *int {
+func countParseCalls(t *testing.T) *atomic.Int32 {
 	t.Helper()
 	orig := parseSessionFile
-	calls := 0
+	var calls atomic.Int32
 	parseSessionFile = func(path string, includeMessages bool, messageLimit int) (*session.Session, []session.Message, time.Time, int, error) {
-		calls++
+		calls.Add(1)
 		return parseFile(path, includeMessages, messageLimit)
 	}
 	t.Cleanup(func() {
 		parseSessionFile = orig
 	})
 	return &calls
+}
+
+func BenchmarkScanManySessions(b *testing.B) {
+	home := b.TempDir()
+	cwd := b.TempDir()
+	for i := range 512 {
+		id := fmt.Sprintf("bench-%04d", i)
+		body := `{"timestamp":"2026-06-14T00:00:00Z","type":"session_meta","payload":{"id":"` + id + `","timestamp":"2026-06-14T00:00:00Z","cwd":"` + cwd + `"}}` + "\n" +
+			`{"timestamp":"2026-06-14T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"` + id + `"}]}}` + "\n"
+		writeSessionNamed(b, home, fmt.Sprintf("2026/06/14/%s.jsonl", id), body)
+	}
+	store := OpenAt(home)
+	b.ResetTimer()
+	for range b.N {
+		ss, err := store.Scan()
+		if err != nil {
+			b.Fatalf("Scan: %v", err)
+		}
+		if len(ss) != 512 {
+			b.Fatalf("Scan returned %d sessions, want 512", len(ss))
+		}
+	}
 }
