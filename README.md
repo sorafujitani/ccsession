@@ -128,6 +128,12 @@ other repositories, install it with the `skills` CLI:
 npx skills add sorafujitani/ccsession --skill ccsession -a codex
 ```
 
+Here `--skill ccsession` selects this skill from the repository, and
+`-a codex` tells the installer to link it for Codex. The skill itself is still
+the standard Agent Skills directory format: a folder with `SKILL.md` plus
+optional resources. The agent-specific part is discovery and installation
+location, not the workflow instructions.
+
 For a user-wide install:
 
 ```sh
