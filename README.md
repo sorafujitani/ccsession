@@ -125,27 +125,23 @@ If you installed only the `ccsession` binary and want the skill available from
 other repositories, install it with the `skills` CLI:
 
 ```sh
-npx skills add sorafujitani/ccsession --skill ccsession -a codex
+npx skills add sorafujitani/ccsession --skill ccsession
 ```
 
-Here `--skill ccsession` selects this skill from the repository, and
-`-a codex` tells the installer to link it for Codex. The skill itself is still
-the standard Agent Skills directory format: a folder with `SKILL.md` plus
-optional resources. The agent-specific part is discovery and installation
-location, not the workflow instructions. If you omit `-a codex`, the `skills`
-CLI detects installed agents and may prompt you to choose where to install; the
-README uses `-a codex` so the command is deterministic.
+Here `--skill ccsession` selects this skill from the repository. The skill
+itself is the standard Agent Skills directory format: a folder with `SKILL.md`
+plus optional resources.
 
 For a user-wide install:
 
 ```sh
-npx skills add sorafujitani/ccsession --skill ccsession -a codex -g
+npx skills add sorafujitani/ccsession --skill ccsession -g
 ```
 
 When developing from a local checkout, install from the current directory:
 
 ```sh
-npx skills add . --skill ccsession -a codex
+npx skills add . --skill ccsession
 ```
 
 Start a new Codex session after installing or updating the skill so the skill
