@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sorafujitani/ccsession/internal/opencode"
@@ -55,12 +56,13 @@ func (a allSource) Name() string { return nameAll }
 
 func (a allSource) Scan() ([]*session.Session, error) {
 	var out []*session.Session
-	for _, src := range a.sources {
-		ss, err := src.Scan()
-		if err != nil {
-			return nil, fmt.Errorf("%s scan: %w", src.Name(), err)
+	for _, result := range parallelBySource(a.sources, func(src Source) ([]*session.Session, error) {
+		return src.Scan()
+	}) {
+		if result.err != nil {
+			return nil, fmt.Errorf("%s scan: %w", result.name, result.err)
 		}
-		out = append(out, keyedSessions(src.Name(), ss)...)
+		out = append(out, keyedSessions(result.name, result.value)...)
 	}
 	sortSessions(out)
 	return out, nil
@@ -83,16 +85,19 @@ func (a allSource) ScanFiltered(allow map[string]struct{}) ([]*session.Session, 
 	}
 
 	var out []*session.Session
+	var sources []Source
 	for _, src := range a.sources {
-		keys := grouped[src.Name()]
-		if len(keys) == 0 {
-			continue
+		if len(grouped[src.Name()]) > 0 {
+			sources = append(sources, src)
 		}
-		ss, err := src.ScanFiltered(keys)
-		if err != nil {
-			return nil, fmt.Errorf("%s scan filtered: %w", src.Name(), err)
+	}
+	for _, result := range parallelBySource(sources, func(src Source) ([]*session.Session, error) {
+		return src.ScanFiltered(grouped[src.Name()])
+	}) {
+		if result.err != nil {
+			return nil, fmt.Errorf("%s scan filtered: %w", result.name, result.err)
 		}
-		out = append(out, keyedSessions(src.Name(), ss)...)
+		out = append(out, keyedSessions(result.name, result.value)...)
 	}
 	sortSessions(out)
 	return out, nil
@@ -136,13 +141,14 @@ func (a allSource) FindByLocator(id, locator string) (*session.Session, error) {
 
 func (a allSource) GrepKeys(query string, regex bool) (map[string]struct{}, error) {
 	out := make(map[string]struct{})
-	for _, src := range a.sources {
-		keys, err := src.GrepKeys(query, regex)
-		if err != nil {
-			return nil, fmt.Errorf("%s grep: %w", src.Name(), err)
+	for _, result := range parallelBySource(a.sources, func(src Source) (map[string]struct{}, error) {
+		return src.GrepKeys(query, regex)
+	}) {
+		if result.err != nil {
+			return nil, fmt.Errorf("%s grep: %w", result.name, result.err)
 		}
-		for key := range keys {
-			out[joinKey(src.Name(), key)] = struct{}{}
+		for key := range result.value {
+			out[joinKey(result.name, key)] = struct{}{}
 		}
 	}
 	return out, nil
@@ -170,6 +176,31 @@ func (a allSource) sourceByName(name string) (Source, bool) {
 		}
 	}
 	return nil, false
+}
+
+type sourceResult[T any] struct {
+	name  string
+	value T
+	err   error
+}
+
+func parallelBySource[T any](sources []Source, fn func(Source) (T, error)) []sourceResult[T] {
+	results := make([]sourceResult[T], len(sources))
+	var wg sync.WaitGroup
+	for i, src := range sources {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			value, err := fn(src)
+			results[i] = sourceResult[T]{
+				name:  src.Name(),
+				value: value,
+				err:   err,
+			}
+		}()
+	}
+	wg.Wait()
+	return results
 }
 
 func keyedSessions(name string, ss []*session.Session) []*session.Session {

@@ -1,10 +1,12 @@
 package source
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sorafujitani/ccsession/internal/codex"
 	"github.com/sorafujitani/ccsession/internal/grok"
@@ -233,6 +235,32 @@ func TestAllSource_ScanReturnsCompositeIDsSorted(t *testing.T) {
 	}
 }
 
+func TestAllSource_ScanRunsBackendsConcurrently(t *testing.T) {
+	codexStarted := make(chan struct{})
+	src := allSource{sources: []Source{
+		fakeSource{name: "claude", scanFunc: func() ([]*session.Session, error) {
+			select {
+			case <-codexStarted:
+				return []*session.Session{{ID: "c1", Source: "claude", LastEpoch: 10}}, nil
+			case <-time.After(time.Second):
+				return nil, errors.New("codex scan did not start")
+			}
+		}},
+		fakeSource{name: "codex", scanFunc: func() ([]*session.Session, error) {
+			close(codexStarted)
+			return []*session.Session{{ID: "x1", Source: "codex", LastEpoch: 20}}, nil
+		}},
+	}}
+
+	ss, err := src.Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 2 {
+		t.Fatalf("Scan returned %d sessions, want 2", len(ss))
+	}
+}
+
 func TestAllSource_GrepKeysFeedScanFiltered(t *testing.T) {
 	src := allSource{sources: []Source{
 		fakeSource{name: "claude", sessions: []*session.Session{
@@ -267,6 +295,112 @@ func TestAllSource_GrepKeysFeedScanFiltered(t *testing.T) {
 	}
 	if _, ok := ids["codex:x1"]; !ok {
 		t.Fatalf("missing codex session in %v", ids)
+	}
+}
+
+func TestAllSource_ScanFilteredRunsBackendsConcurrently(t *testing.T) {
+	codexStarted := make(chan struct{})
+	src := allSource{sources: []Source{
+		fakeSource{name: "claude", scanFilteredFunc: func(map[string]struct{}) ([]*session.Session, error) {
+			select {
+			case <-codexStarted:
+				return []*session.Session{{ID: "c1", Source: "claude"}}, nil
+			case <-time.After(time.Second):
+				return nil, errors.New("codex filtered scan did not start")
+			}
+		}},
+		fakeSource{name: "codex", scanFilteredFunc: func(map[string]struct{}) ([]*session.Session, error) {
+			close(codexStarted)
+			return []*session.Session{{ID: "x1", Source: "codex"}}, nil
+		}},
+	}}
+
+	ss, err := src.ScanFiltered(map[string]struct{}{
+		"claude:c1": {},
+		"codex:x1":  {},
+	})
+	if err != nil {
+		t.Fatalf("ScanFiltered: %v", err)
+	}
+	if len(ss) != 2 {
+		t.Fatalf("ScanFiltered returned %d sessions, want 2", len(ss))
+	}
+}
+
+func TestAllSource_GrepKeysRunsBackendsConcurrently(t *testing.T) {
+	codexStarted := make(chan struct{})
+	src := allSource{sources: []Source{
+		fakeSource{name: "claude", grepFunc: func(string, bool) (map[string]struct{}, error) {
+			select {
+			case <-codexStarted:
+				return map[string]struct{}{"c1": {}}, nil
+			case <-time.After(time.Second):
+				return nil, errors.New("codex grep did not start")
+			}
+		}},
+		fakeSource{name: "codex", grepFunc: func(string, bool) (map[string]struct{}, error) {
+			close(codexStarted)
+			return map[string]struct{}{"x1": {}}, nil
+		}},
+	}}
+
+	keys, err := src.GrepKeys("needle", false)
+	if err != nil {
+		t.Fatalf("GrepKeys: %v", err)
+	}
+	for _, key := range []string{"claude:c1", "codex:x1"} {
+		if _, ok := keys[key]; !ok {
+			t.Fatalf("missing key %q in %v", key, keys)
+		}
+	}
+}
+
+func TestAllSource_ErrorsIncludeBackendName(t *testing.T) {
+	boom := errors.New("boom")
+	cases := []struct {
+		name string
+		run  func(allSource) error
+		src  fakeSource
+		want string
+	}{
+		{
+			name: "scan",
+			run: func(src allSource) error {
+				_, err := src.Scan()
+				return err
+			},
+			src:  fakeSource{name: "codex", scanErr: boom},
+			want: "codex scan: boom",
+		},
+		{
+			name: "scan filtered",
+			run: func(src allSource) error {
+				_, err := src.ScanFiltered(map[string]struct{}{"codex:x1": {}})
+				return err
+			},
+			src:  fakeSource{name: "codex", scanFilteredErr: boom},
+			want: "codex scan filtered: boom",
+		},
+		{
+			name: "grep",
+			run: func(src allSource) error {
+				_, err := src.GrepKeys("needle", false)
+				return err
+			},
+			src:  fakeSource{name: "codex", grepErr: boom},
+			want: "codex grep: boom",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := c.run(allSource{sources: []Source{c.src}})
+			if err == nil {
+				t.Fatal("got nil error")
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error = %q, want to contain %q", err, c.want)
+			}
+		})
 	}
 }
 
@@ -361,19 +495,37 @@ func TestAllSource_FindByLocatorRoutesCompositeLocator(t *testing.T) {
 }
 
 type fakeSource struct {
-	name      string
-	sessions  []*session.Session
-	grep      map[string]struct{}
-	resumeBin string
+	name             string
+	sessions         []*session.Session
+	grep             map[string]struct{}
+	resumeBin        string
+	scanErr          error
+	scanFilteredErr  error
+	grepErr          error
+	scanFunc         func() ([]*session.Session, error)
+	scanFilteredFunc func(map[string]struct{}) ([]*session.Session, error)
+	grepFunc         func(string, bool) (map[string]struct{}, error)
 }
 
 func (f fakeSource) Name() string { return f.name }
 
 func (f fakeSource) Scan() ([]*session.Session, error) {
+	if f.scanFunc != nil {
+		return f.scanFunc()
+	}
+	if f.scanErr != nil {
+		return nil, f.scanErr
+	}
 	return f.sessions, nil
 }
 
 func (f fakeSource) ScanFiltered(allow map[string]struct{}) ([]*session.Session, error) {
+	if f.scanFilteredFunc != nil {
+		return f.scanFilteredFunc(allow)
+	}
+	if f.scanFilteredErr != nil {
+		return nil, f.scanFilteredErr
+	}
 	var out []*session.Session
 	for _, s := range f.sessions {
 		if _, ok := allow[s.ID]; ok {
@@ -413,7 +565,13 @@ func (f fakeSource) FindByLocator(id, locator string) (*session.Session, error) 
 	return nil, session.ErrSessionFileMissing
 }
 
-func (f fakeSource) GrepKeys(string, bool) (map[string]struct{}, error) {
+func (f fakeSource) GrepKeys(query string, regex bool) (map[string]struct{}, error) {
+	if f.grepFunc != nil {
+		return f.grepFunc(query, regex)
+	}
+	if f.grepErr != nil {
+		return nil, f.grepErr
+	}
 	return f.grep, nil
 }
 
