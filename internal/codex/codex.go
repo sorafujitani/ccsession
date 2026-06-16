@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sorafujitani/ccsession/internal/filescan"
 	"github.com/sorafujitani/ccsession/internal/grep"
 	"github.com/sorafujitani/ccsession/internal/session"
 	"github.com/sorafujitani/ccsession/internal/timefmt"
@@ -209,11 +210,14 @@ func (s *Store) representativeSessions() ([]*session.Session, error) {
 	}
 	seen := make(map[string]struct{})
 	out := make([]*session.Session, 0, len(paths))
-	for _, path := range paths {
+	candidates := filescan.Parallel(paths, func(path string) (*session.Session, bool) {
 		sess, _, _, _, err := parseSessionFile(path, false, 0)
 		if err != nil || sess == nil {
-			continue
+			return nil, false
 		}
+		return sess, true
+	})
+	for _, sess := range candidates {
 		if _, ok := seen[sess.ID]; ok {
 			continue
 		}

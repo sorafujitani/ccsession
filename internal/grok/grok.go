@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sorafujitani/ccsession/internal/filescan"
 	"github.com/sorafujitani/ccsession/internal/grep"
 	"github.com/sorafujitani/ccsession/internal/session"
 )
@@ -56,6 +57,10 @@ type updateEntry struct {
 type textBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+var readSummaryFile = func(s *Store, path string) (*session.Session, error) {
+	return s.readSummary(path)
 }
 
 func Open() (*Store, error) {
@@ -197,14 +202,13 @@ func (s *Store) scanFiltered(allow map[string]struct{}) ([]*session.Session, err
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*session.Session, 0, len(paths))
-	for _, path := range paths {
-		sess, err := s.readSummary(path)
+	out := filescan.Parallel(paths, func(path string) (*session.Session, bool) {
+		sess, err := readSummaryFile(s, path)
 		if err != nil || sess == nil || !allowed(allow, sess.ID) {
-			continue
+			return nil, false
 		}
-		out = append(out, sess)
-	}
+		return sess, true
+	})
 	nowEpoch := time.Now().Unix()
 	sort.SliceStable(out, func(i, j int) bool {
 		ki, kj := sortEpoch(out[i].LastEpoch, nowEpoch), sortEpoch(out[j].LastEpoch, nowEpoch)
