@@ -16,6 +16,7 @@ can agree on the approach before you invest time in a PR.
 | `claude` ([Claude Code CLI](https://docs.claude.com/en/docs/claude-code)) | exercising `resume` end to end |
 | [`opencode`](https://opencode.ai) | exercising the `--source=opencode` backend (optional) |
 | `grok` (Grok Build TUI) | exercising the `--source=grok` backend (optional) |
+| `codex` (Codex CLI) | exercising the `--source=codex` backend (optional) |
 
 A [Nix](https://nixos.org/) flake is provided that pins Go, `fzf`, `gopls`, and
 `goreleaser`. It is the quickest way to get a reproducible toolchain, but it is
@@ -115,6 +116,7 @@ release, run a manual smoke test against real installs:
      matched (**grep**).
    - press Enter — it resumes in the original directory (**resume**).
 3. Repeat the same checklist with a Grok session using `ccsession --grok`.
+4. Repeat the same checklist with a Codex session using `ccsession --codex`.
 
 The Claude backend is exercised continuously in everyday use, so it needs no
 separate checklist.
