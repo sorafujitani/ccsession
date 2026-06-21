@@ -69,7 +69,7 @@ const usage = `ccsession - fzf frontend for agent session resume
 USAGE:
   ccsession [--all | --source <s>] [--exclude-dir <s>] # list -> fzf -> resume
   ccsession list [--grep Q] [--exclude-dir S]         # TSV rows, or JSON with --json
-  ccsession preview [--query Q] [--regex] [--locator L] [--json] <sessionId>
+  ccsession preview [--query Q] [--regex] [--locator L] [--json] [--color M] [--no-color] <sessionId>
   ccsession resume-spec [--locator L] <sessionId> # print the resume target as JSON
   ccsession resume  [--locator L] <sessionId>     # chdir to original cwd, exec the agent
 
@@ -134,13 +134,15 @@ FLAGS:
 const previewUsage = `ccsession preview - render the preview pane for a session id
 
 USAGE:
-  ccsession preview [--query <query>] [--regex] [--locator <locator>] [--json] <sessionId>
+  ccsession preview [--query <query>] [--regex] [--locator <locator>] [--json] [--color <mode>] [--no-color] <sessionId>
 
 FLAGS:
   --query <query>     highlight matches of <query> in the preview (fixed-string)
   --regex             treat --query as a regular expression
   --locator <locator> opaque session locator from list output
   --json              emit a structured JSON preview instead of pane text
+  --color <mode>      color output: auto (default) | always | never
+  --no-color          shorthand for --color=never
 `
 
 const resumeUsage = `ccsession resume - chdir to the session's cwd and exec the selected agent
@@ -380,6 +382,8 @@ func cmdPreview(args []string) {
 	regexFlag := fs.Bool("regex", false, "treat --query as a regular expression")
 	locatorFlag := fs.String("locator", "", "opaque session locator from list output")
 	jsonFlag := fs.Bool("json", false, "emit JSON instead of pane text")
+	colorFlag := fs.String("color", "auto", "color output: auto|always|never")
+	noColor := fs.Bool("no-color", false, "shorthand for --color=never")
 	if err := fs.Parse(args); err != nil {
 		handleFlagError("preview", fs, err)
 	}
@@ -389,7 +393,7 @@ func cmdPreview(args []string) {
 		fs.Usage()
 		os.Exit(2)
 	}
-	if err := preview.Run(rest[0], preview.Options{Query: *queryFlag, Regex: *regexFlag, Locator: *locatorFlag, JSON: *jsonFlag}); err != nil {
+	if err := preview.Run(rest[0], preview.Options{Query: *queryFlag, Regex: *regexFlag, Locator: *locatorFlag, JSON: *jsonFlag, Color: *colorFlag, NoColor: *noColor}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession preview:", err)
 		os.Exit(1)
 	}
@@ -528,7 +532,7 @@ selected=$("$CCSESSION_BIN" list --color=always "${exclude_args[@]+"${exclude_ar
   --no-sort \
   --no-hscroll \
   --color='hl:-1:reverse,hl+:-1:reverse' \
-  --preview "$CCSESSION_BIN preview --locator {2} --query {q} {1}" \
+  --preview "$CCSESSION_BIN preview --color=always --locator {2} --query {q} {1}" \
   --preview-window=right,60%,wrap \
   --header='[__CCS_SOURCE__] __CCS_BIND_GREP__: grep / __CCS_BIND_DIR__: dir / __CCS_BIND_FUZZY__: fuzzy / enter: resume' \
   --bind 'start:unbind(change)' \

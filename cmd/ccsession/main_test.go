@@ -63,7 +63,7 @@ func TestBuildScriptPassesHiddenKeyToPreviewAndResume(t *testing.T) {
 	got := buildScript(config.Defaults(), "all")
 	wants := []string{
 		`--with-nth=4,5,6`,
-		`--preview "$CCSESSION_BIN preview --locator {2} --query {q} {1}"`,
+		`--preview "$CCSESSION_BIN preview --color=always --locator {2} --query {q} {1}"`,
 		`IFS=$'\t' read -r id locator _rest <<< "$selected"`,
 		`exec "$CCSESSION_BIN" resume --locator "$locator" "$id"`,
 	}
