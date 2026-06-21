@@ -69,7 +69,7 @@ const usage = `ccsession - fzf frontend for agent session resume
 USAGE:
   ccsession [--all | --source <s>] [--exclude-dir <s>] # list -> fzf -> resume
   ccsession list [--grep Q] [--exclude-dir S]         # TSV rows, or JSON with --json
-  ccsession preview [--locator L] <sessionId>     # preview pane content
+  ccsession preview [--query Q] [--regex] [--locator L] [--json] <sessionId>
   ccsession resume-spec [--locator L] <sessionId> # print the resume target as JSON
   ccsession resume  [--locator L] <sessionId>     # chdir to original cwd, exec the agent
 
@@ -134,12 +134,13 @@ FLAGS:
 const previewUsage = `ccsession preview - render the preview pane for a session id
 
 USAGE:
-  ccsession preview [--query <query>] [--regex] [--locator <locator>] <sessionId>
+  ccsession preview [--query <query>] [--regex] [--locator <locator>] [--json] <sessionId>
 
 FLAGS:
   --query <query>     highlight matches of <query> in the preview (fixed-string)
   --regex             treat --query as a regular expression
   --locator <locator> opaque session locator from list output
+  --json              emit a structured JSON preview instead of pane text
 `
 
 const resumeUsage = `ccsession resume - chdir to the session's cwd and exec the selected agent
@@ -378,6 +379,7 @@ func cmdPreview(args []string) {
 	queryFlag := fs.String("query", "", "highlight matches of <query> in the preview")
 	regexFlag := fs.Bool("regex", false, "treat --query as a regular expression")
 	locatorFlag := fs.String("locator", "", "opaque session locator from list output")
+	jsonFlag := fs.Bool("json", false, "emit JSON instead of pane text")
 	if err := fs.Parse(args); err != nil {
 		handleFlagError("preview", fs, err)
 	}
@@ -387,7 +389,7 @@ func cmdPreview(args []string) {
 		fs.Usage()
 		os.Exit(2)
 	}
-	if err := preview.Run(rest[0], preview.Options{Query: *queryFlag, Regex: *regexFlag, Locator: *locatorFlag}); err != nil {
+	if err := preview.Run(rest[0], preview.Options{Query: *queryFlag, Regex: *regexFlag, Locator: *locatorFlag, JSON: *jsonFlag}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession preview:", err)
 		os.Exit(1)
 	}

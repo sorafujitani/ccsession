@@ -289,3 +289,85 @@ func BenchmarkScanManySessions(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkGrepKeysHitAndMiss(b *testing.B) {
+	home := b.TempDir()
+	cache := b.TempDir()
+	b.Setenv(grep.EnvCacheDir, cache)
+	for i := range 512 {
+		body := "ordinary body"
+		if i%32 == 0 {
+			body = "needle body"
+		}
+		writeBenchmarkSession(b, home, fmt.Sprintf("bench-grep-%04d", i), body, 1)
+	}
+	store := OpenAt(home)
+	for _, query := range []string{"needle", "not-present"} {
+		if _, err := store.GrepKeys(query, false); err != nil {
+			b.Fatalf("prewarm GrepKeys: %v", err)
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		query string
+	}{
+		{name: "hit", query: "needle"},
+		{name: "miss", query: "not-present"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			for range b.N {
+				keys, err := store.GrepKeys(tc.query, false)
+				if err != nil {
+					b.Fatalf("GrepKeys: %v", err)
+				}
+				if keys == nil {
+					b.Fatal("GrepKeys returned nil set")
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkMessagesLargeSession(b *testing.B) {
+	home := b.TempDir()
+	id := "bench-messages"
+	writeBenchmarkSession(b, home, id, "message", 1000)
+	store := OpenAt(home)
+
+	b.ResetTimer()
+	for range b.N {
+		msgs, _, total, err := store.Messages(id, 30)
+		if err != nil {
+			b.Fatalf("Messages: %v", err)
+		}
+		if total != 1000 || len(msgs) != 30 {
+			b.Fatalf("Messages returned total=%d len=%d, want 1000/30", total, len(msgs))
+		}
+	}
+}
+
+func writeBenchmarkSession(b *testing.B, home, id, body string, messages int) {
+	b.Helper()
+	cwd := filepath.Join("/tmp", id)
+	dir := filepath.Join(home, "sessions", url.PathEscape(cwd), id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		b.Fatalf("mkdir: %v", err)
+	}
+	summary := `{
+  "info": {"id": "` + id + `", "cwd": "` + cwd + `"},
+  "session_summary": "` + id + `",
+  "created_at": "2026-06-13T14:04:50.330068Z",
+  "updated_at": "2026-06-13T14:04:51.248996Z"
+}`
+	if err := os.WriteFile(filepath.Join(dir, "summary.json"), []byte(summary), 0o644); err != nil {
+		b.Fatalf("write summary: %v", err)
+	}
+	var updates strings.Builder
+	for i := range messages {
+		updates.WriteString(`{"timestamp":1780068196,"method":"session/update","params":{"sessionId":"` + id + `","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"` + body + ` ` + fmt.Sprint(i) + `"}}}}` + "\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "updates.jsonl"), []byte(updates.String()), 0o644); err != nil {
+		b.Fatalf("write updates: %v", err)
+	}
+}

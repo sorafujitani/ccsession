@@ -155,3 +155,23 @@ func find(t *testing.T, ss []*session.Session, id string) *session.Session {
 	t.Fatalf("session %q not found in %v", id, ids(ss))
 	return nil
 }
+
+func BenchmarkScanManySessions(b *testing.B) {
+	f := newFixture(b, fixtureOpts{})
+	for i := range 1000 {
+		id := "ses_scan_" + itoa(int64(i))
+		f.session(id, "/tmp/"+id, "title "+id, int64(i+1)*1000)
+	}
+	d := f.open()
+
+	b.ResetTimer()
+	for range b.N {
+		ss, err := d.Scan()
+		if err != nil {
+			b.Fatalf("Scan: %v", err)
+		}
+		if len(ss) != 1000 {
+			b.Fatalf("Scan returned %d sessions, want 1000", len(ss))
+		}
+	}
+}

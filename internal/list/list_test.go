@@ -3,6 +3,8 @@ package list
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -231,7 +233,7 @@ func TestRun_JSONLimit(t *testing.T) {
 	}
 }
 
-func writeListSession(t *testing.T, home, cwd, id, ts, label string) {
+func writeListSession(t testing.TB, home, cwd, id, ts, label string) {
 	t.Helper()
 	dir := filepath.Join(home, ".claude", "projects", "-proj")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -240,6 +242,64 @@ func writeListSession(t *testing.T, home, cwd, id, ts, label string) {
 	body := `{"type":"user","timestamp":"` + ts + `","cwd":"` + cwd + `","message":{"role":"user","content":"` + label + `"}}` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, id+".jsonl"), []byte(body), 0o644); err != nil {
 		t.Fatalf("write session: %v", err)
+	}
+}
+
+func BenchmarkRunJSONThousandSessions(b *testing.B) {
+	home := b.TempDir()
+	cwd := b.TempDir()
+	b.Setenv("HOME", home)
+	b.Setenv(source.EnvVar, "")
+	for i := range 1000 {
+		id := fmt.Sprintf("11111111-1111-1111-1111-%012d", i)
+		ts := time.Date(2026, 5, 26, 10, 0, i%60, 0, time.UTC).Format(time.RFC3339)
+		writeListSession(b, home, cwd, id, ts, "benchmark label "+id)
+	}
+
+	b.ResetTimer()
+	for range b.N {
+		if err := Run(Options{JSON: true, Out: io.Discard}); err != nil {
+			b.Fatalf("Run: %v", err)
+		}
+	}
+}
+
+func BenchmarkRunGrepJSONHitAndMiss(b *testing.B) {
+	home := b.TempDir()
+	cwd := b.TempDir()
+	cache := b.TempDir()
+	b.Setenv("HOME", home)
+	b.Setenv(source.EnvVar, "")
+	b.Setenv("CCSESSION_GREP_CACHE_DIR", cache)
+	for i := range 512 {
+		id := fmt.Sprintf("22222222-2222-2222-2222-%012d", i)
+		label := "ordinary label"
+		if i%16 == 0 {
+			label = "needle label"
+		}
+		ts := time.Date(2026, 5, 26, 10, 0, i%60, 0, time.UTC).Format(time.RFC3339)
+		writeListSession(b, home, cwd, id, ts, label)
+	}
+	for _, query := range []string{"needle", "not-present"} {
+		if err := Run(Options{Grep: query, JSON: true, Out: io.Discard}); err != nil {
+			b.Fatalf("prewarm Run: %v", err)
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		query string
+	}{
+		{name: "hit", query: "needle"},
+		{name: "miss", query: "not-present"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			for range b.N {
+				if err := Run(Options{Grep: tc.query, JSON: true, Out: io.Discard}); err != nil {
+					b.Fatalf("Run: %v", err)
+				}
+			}
+		})
 	}
 }
 

@@ -24,6 +24,8 @@ type Options struct {
 	Query   string
 	Regex   bool
 	Locator string
+	JSON    bool
+	Out     io.Writer
 }
 
 const (
@@ -42,8 +44,32 @@ type previewMessage struct {
 	Content json.RawMessage `json:"content"`
 }
 
+type JSONPreview struct {
+	Source        string        `json:"source"`
+	ID            string        `json:"id"`
+	Locator       string        `json:"locator"`
+	CWD           string        `json:"cwd"`
+	CWDExists     bool          `json:"cwd_exists"`
+	CWDUnknown    bool          `json:"cwd_unknown"`
+	Label         string        `json:"label"`
+	StartedAt     string        `json:"started_at"`
+	LastActivity  string        `json:"last_activity"`
+	TotalMessages int           `json:"total_messages"`
+	Messages      []JSONMessage `json:"messages"`
+	LoadError     string        `json:"load_error,omitempty"`
+}
+
+type JSONMessage struct {
+	Role      string `json:"role"`
+	Timestamp string `json:"timestamp"`
+	Body      string `json:"body"`
+}
+
 // Run writes the preview pane content for a given session id to stdout.
 func Run(id string, opts Options) error {
+	if opts.Out == nil {
+		opts.Out = os.Stdout
+	}
 	src, err := source.FromEnv()
 	if err != nil {
 		return err
@@ -66,7 +92,10 @@ func Run(id string, opts Options) error {
 			src = routed
 		}
 	}
-	return renderFrom(src, s, os.Stdout, opts)
+	if opts.JSON {
+		return renderJSONFrom(src, s, opts.Out, opts)
+	}
+	return renderFrom(src, s, opts.Out, opts)
 }
 
 // messageSource is the seam for a backend that has no JSONL transcript: it
@@ -86,6 +115,68 @@ func renderFrom(src source.Source, s *session.Session, out io.Writer, opts Optio
 		return renderWith(s, out, opts, msgs, startedAt, total, err)
 	}
 	return render(s, out, opts)
+}
+
+func renderJSONFrom(src source.Source, s *session.Session, out io.Writer, opts Options) error {
+	msgs, startedAt, total, loadErr, err := previewData(src, s)
+	if err != nil {
+		return err
+	}
+	return writeJSONPreview(s, out, opts, msgs, startedAt, total, loadErr)
+}
+
+func previewData(src source.Source, s *session.Session) ([]session.Message, time.Time, int, error, error) {
+	if ms, ok := src.(messageSource); ok {
+		msgs, startedAt, total, loadErr := ms.Messages(s, maxMessages)
+		return msgs, startedAt, total, loadErr, nil
+	}
+	msgs, startedAt, total, err := loadMessages(s.JSONLPath)
+	return msgs, startedAt, total, nil, err
+}
+
+func writeJSONPreview(s *session.Session, out io.Writer, opts Options, messages []session.Message, startedAt time.Time, totalMsgs int, loadErr error) error {
+	if startedAt.IsZero() && !s.LastTime.IsZero() {
+		startedAt = s.LastTime
+	}
+	row := JSONPreview{
+		Source:        s.Source,
+		ID:            s.ID,
+		Locator:       opts.Locator,
+		CWD:           s.CWD,
+		CWDExists:     s.CWDExists,
+		CWDUnknown:    s.CWDUnknown,
+		Label:         s.Label,
+		StartedAt:     formatJSONTime(startedAt),
+		LastActivity:  formatJSONTime(s.LastTime),
+		TotalMessages: totalMsgs,
+		Messages:      jsonMessages(messages),
+	}
+	if row.Locator == "" {
+		row.Locator = source.LocatorFor(s)
+	}
+	if loadErr != nil {
+		row.LoadError = loadErr.Error()
+	}
+	return json.NewEncoder(out).Encode(row)
+}
+
+func jsonMessages(messages []session.Message) []JSONMessage {
+	rows := make([]JSONMessage, 0, len(messages))
+	for _, m := range messages {
+		rows = append(rows, JSONMessage{
+			Role:      m.Role,
+			Timestamp: formatJSONTime(m.Timestamp),
+			Body:      truncateBody(m.Body),
+		})
+	}
+	return rows
+}
+
+func formatJSONTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 func render(s *session.Session, out io.Writer, opts Options) error {

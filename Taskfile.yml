@@ -1,0 +1,59 @@
+version: '3'
+
+silent: true
+
+vars:
+  PKG: '{{default "./..." .PKG}}'
+  BENCH_OUT: '{{default "/tmp/ccsession-bench.txt" .BENCH_OUT}}'
+  BEFORE: '{{default "/tmp/ccsession-bench-before.txt" .BEFORE}}'
+  AFTER: '{{default "/tmp/ccsession-bench-after.txt" .AFTER}}'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  test:
+    desc: Run the full Go test suite
+    cmds:
+      - go test ./...
+
+  bench-raw:
+    desc: Run benchmarks with raw Go output
+    cmds:
+      - go test -run '^$' -bench=. -benchmem {{.PKG}} | tee {{.BENCH_OUT}}
+
+  bench:
+    desc: Run benchmarks and print a compact ms/op table
+    cmds:
+      - |
+        go test -run '^$' -bench=. -benchmem {{.PKG}} | tee {{.BENCH_OUT}} | awk '
+        /^pkg:/ {
+          pkg=$2
+          printf "\n%s\n", pkg
+        }
+        /^Benchmark/ {
+          name=$1
+          sub(/-[0-9]+$/, "", name)
+          runs=$2
+          ns=$3
+          ms=ns/1000000
+          printf "  %-52s %9.3f ms/op  %8s runs", name, ms, runs
+          for (i=5; i<=NF; i+=2) {
+            printf "  %10s %s", $i, $(i+1)
+          }
+          print ""
+        }'
+      - echo "raw benchmark output saved to {{.BENCH_OUT}}"
+
+  benchstat:
+    desc: Compare two benchmark output files with benchstat
+    cmds:
+      - |
+        command -v benchstat >/dev/null || {
+          echo "benchstat not found. Install it with:"
+          echo "  go install golang.org/x/perf/cmd/benchstat@latest"
+          exit 127
+        }
+        benchstat {{.BEFORE}} {{.AFTER}}

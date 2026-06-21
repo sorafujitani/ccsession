@@ -43,7 +43,7 @@ CREATE TABLE migration (id TEXT PRIMARY KEY);
 `
 
 type fixture struct {
-	t    *testing.T
+	t    testing.TB
 	path string
 	db   *sql.DB // writable seed connection, kept open so WAL data stays live
 	seq  int     // monotonic id counter for parts/messages
@@ -59,7 +59,7 @@ type fixtureOpts struct {
 // handle for seeding. The writable connection stays open until cleanup so that
 // in WAL mode the rows live in the un-checkpointed -wal sidecar, exercising the
 // read path that immutable=1 would have hidden.
-func newFixture(t *testing.T, opts fixtureOpts) *fixture {
+func newFixture(t testing.TB, opts fixtureOpts) *fixture {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "opencode.db")

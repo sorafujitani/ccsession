@@ -100,6 +100,7 @@ ccsession --codex                    # use Codex sessions from ~/.codex/sessions
 ccsession list  [--grep Q] [--regex] # emit TSV rows to stdout
 ccsession list --json --grep Q --limit 5 # emit structured rows for agents
 ccsession preview [--query Q] [--regex] <id> # render the preview pane (Q highlighted)
+ccsession preview --json <id>        # emit structured preview data for scripts/agents
 ccsession resume-spec <id>           # print the resume target without launching it
 ccsession resume  <id>               # chdir to the session's cwd, exec the selected agent
 ccsession --version
@@ -169,6 +170,7 @@ The skill teaches agents to use `ccsession` in a read-first workflow:
 
    ```sh
    ccsession preview --locator "<locator>" --query "<query>" "<id>"
+   ccsession preview --json --locator "<locator>" "<id>"
    ```
 
 4. Show the non-launching handoff target:

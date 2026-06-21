@@ -595,3 +595,75 @@ func fixtureCodexHome(t *testing.T, content string) (home, id string) {
 	}
 	return home, id
 }
+
+func BenchmarkAllSourceScan(b *testing.B) {
+	src := allSource{sources: []Source{
+		benchmarkFakeSource("claude", 500, 10_000),
+		benchmarkFakeSource("opencode", 500, 20_000),
+		benchmarkFakeSource("grok", 500, 30_000),
+		benchmarkFakeSource("codex", 500, 40_000),
+	}}
+	b.ResetTimer()
+	for range b.N {
+		ss, err := src.Scan()
+		if err != nil {
+			b.Fatalf("Scan: %v", err)
+		}
+		if len(ss) != 2000 {
+			b.Fatalf("Scan returned %d sessions, want 2000", len(ss))
+		}
+	}
+}
+
+func BenchmarkAllSourceGrepKeys(b *testing.B) {
+	src := allSource{sources: []Source{
+		benchmarkFakeGrepSource("claude", 500),
+		benchmarkFakeGrepSource("opencode", 500),
+		benchmarkFakeGrepSource("grok", 500),
+		benchmarkFakeGrepSource("codex", 500),
+	}}
+	b.ResetTimer()
+	for range b.N {
+		keys, err := src.GrepKeys("needle", false)
+		if err != nil {
+			b.Fatalf("GrepKeys: %v", err)
+		}
+		if len(keys) != 2000 {
+			b.Fatalf("GrepKeys returned %d keys, want 2000", len(keys))
+		}
+	}
+}
+
+func benchmarkFakeSource(name string, n int, baseEpoch int64) fakeSource {
+	sessions := make([]*session.Session, 0, n)
+	for i := range n {
+		sessions = append(sessions, &session.Session{
+			ID:        name + "-" + itoaBench(i),
+			Source:    name,
+			LastEpoch: baseEpoch + int64(i),
+		})
+	}
+	return fakeSource{name: name, sessions: sessions}
+}
+
+func benchmarkFakeGrepSource(name string, n int) fakeSource {
+	keys := make(map[string]struct{}, n)
+	for i := range n {
+		keys[name+"-"+itoaBench(i)] = struct{}{}
+	}
+	return fakeSource{name: name, grep: keys}
+}
+
+func itoaBench(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}

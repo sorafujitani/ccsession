@@ -108,6 +108,60 @@ func TestRender_HeaderAndMessages(t *testing.T) {
 	}
 }
 
+func TestRenderJSONFrom_StructuredBoundedPreview(t *testing.T) {
+	tmp := t.TempDir()
+	long := strings.Repeat("x", maxBodyLen+20)
+	body := strings.Join([]string{
+		`{"type":"user","timestamp":"2026-05-26T10:00:00Z","message":{"role":"user","content":"hello world"}}`,
+		`{"type":"assistant","timestamp":"2026-05-26T10:00:05Z","message":{"role":"assistant","content":"` + long + `"}}`,
+	}, "\n") + "\n"
+	jsonl := filepath.Join(tmp, "a.jsonl")
+	if err := os.WriteFile(jsonl, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	s := &session.Session{
+		ID:        "abc",
+		Source:    "claude",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		Label:     "preview label",
+		LastTime:  time.Date(2026, 5, 26, 10, 0, 5, 0, time.UTC),
+	}
+
+	var buf bytes.Buffer
+	if err := renderJSONFrom(fakePreviewSource{}, s, &buf, Options{}); err != nil {
+		t.Fatalf("renderJSONFrom: %v", err)
+	}
+	if strings.Contains(buf.String(), "\x1b[") {
+		t.Fatalf("JSON preview leaked ANSI: %q", buf.String())
+	}
+
+	var got JSONPreview
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal: %v\n%s", err, buf.String())
+	}
+	if got.Source != "claude" || got.ID != "abc" || got.CWD != tmp || got.Label != "preview label" {
+		t.Fatalf("metadata = %+v", got)
+	}
+	if got.Locator == "" {
+		t.Fatal("locator is empty")
+	}
+	if got.StartedAt != "2026-05-26T10:00:00Z" || got.LastActivity != "2026-05-26T10:00:05Z" {
+		t.Fatalf("times = started:%q last:%q", got.StartedAt, got.LastActivity)
+	}
+	if got.TotalMessages != 2 || len(got.Messages) != 2 {
+		t.Fatalf("messages = total:%d len:%d", got.TotalMessages, len(got.Messages))
+	}
+	if got.Messages[0].Role != "user" || got.Messages[0].Body != "hello world" {
+		t.Fatalf("first message = %+v", got.Messages[0])
+	}
+	if got.Messages[1].Role != "assistant" || !strings.HasSuffix(got.Messages[1].Body, "…") {
+		t.Fatalf("second message should be truncated assistant body: %+v", got.Messages[1])
+	}
+}
+
 func TestRender_GoneCWDMarker(t *testing.T) {
 	tmp := t.TempDir()
 	body := `{"type":"user","timestamp":"2026-05-26T10:00:00Z","message":{"role":"user","content":"x"}}` + "\n"
@@ -438,3 +492,69 @@ func TestCodexSourceRendersThroughMessageSeam(t *testing.T) {
 		t.Fatalf("rendered preview missing Codex messages: %q", out)
 	}
 }
+
+func BenchmarkRenderJSONLargeTranscript(b *testing.B) {
+	s := benchmarkPreviewSession(b, 1000)
+	b.ResetTimer()
+	for range b.N {
+		if err := renderJSONFrom(fakePreviewSource{}, s, ioDiscard{}, Options{}); err != nil {
+			b.Fatalf("renderJSONFrom: %v", err)
+		}
+	}
+}
+
+func BenchmarkRenderTextLargeTranscript(b *testing.B) {
+	s := benchmarkPreviewSession(b, 1000)
+	b.ResetTimer()
+	for range b.N {
+		if err := render(s, ioDiscard{}, Options{}); err != nil {
+			b.Fatalf("render: %v", err)
+		}
+	}
+}
+
+func benchmarkPreviewSession(b *testing.B, messages int) *session.Session {
+	b.Helper()
+	tmp := b.TempDir()
+	jsonl := filepath.Join(tmp, "bench.jsonl")
+	var body strings.Builder
+	base := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+	for i := range messages {
+		ts := base.Add(time.Duration(i) * time.Second).Format(time.RFC3339)
+		body.WriteString(`{"type":"user","timestamp":"` + ts + `","message":{"role":"user","content":"message ` + itoa(i) + ` ` + strings.Repeat("x", 256) + `"}}` + "\n")
+	}
+	if err := os.WriteFile(jsonl, []byte(body.String()), 0o644); err != nil {
+		b.Fatalf("write: %v", err)
+	}
+	return &session.Session{
+		ID:        "bench",
+		Source:    "claude",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		LastTime:  base.Add(time.Duration(messages-1) * time.Second),
+	}
+}
+
+type fakePreviewSource struct{}
+
+func (fakePreviewSource) Name() string { return "claude" }
+func (fakePreviewSource) Scan() ([]*session.Session, error) {
+	return nil, nil
+}
+func (fakePreviewSource) ScanFiltered(map[string]struct{}) ([]*session.Session, error) {
+	return nil, nil
+}
+func (fakePreviewSource) FindByID(string) (*session.Session, error) {
+	return nil, session.ErrSessionFileMissing
+}
+func (fakePreviewSource) GrepKeys(string, bool) (map[string]struct{}, error) {
+	return nil, nil
+}
+func (fakePreviewSource) ResumeSpec(*session.Session) (string, []string, error) {
+	return "claude", nil, nil
+}
+
+type ioDiscard struct{}
+
+func (ioDiscard) Write(p []byte) (int, error) { return len(p), nil }
