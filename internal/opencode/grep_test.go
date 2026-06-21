@@ -192,3 +192,39 @@ func mustGrep(t *testing.T, d *DB, q string, regex bool) map[string]struct{} {
 	}
 	return keys
 }
+
+func BenchmarkGrepKeysHitAndMiss(b *testing.B) {
+	f := newFixture(b, fixtureOpts{})
+	for i := range 512 {
+		id := "ses_grep_" + itoa(int64(i))
+		title := "ordinary title"
+		body := "ordinary body"
+		if i%32 == 0 {
+			title = "needle title"
+			body = "needle body"
+		}
+		f.session(id, "/tmp/"+id, title, int64(i+1)*1000)
+		f.partsTurn(id, "user", int64(i+1)*1000, body)
+	}
+	d := f.open()
+
+	for _, tc := range []struct {
+		name  string
+		query string
+	}{
+		{name: "hit", query: "needle"},
+		{name: "miss", query: "not-present"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			for range b.N {
+				keys, err := d.GrepKeys(tc.query, false)
+				if err != nil {
+					b.Fatalf("GrepKeys: %v", err)
+				}
+				if keys == nil {
+					b.Fatal("GrepKeys returned nil set")
+				}
+			}
+		})
+	}
+}

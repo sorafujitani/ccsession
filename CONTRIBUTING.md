@@ -34,7 +34,21 @@ go build ./cmd/ccsession
 Run the test suite before and after your change:
 
 ```sh
-go test ./...
+task test
+```
+
+For performance-sensitive changes, run the deterministic benchmark fixtures:
+
+```sh
+task bench
+```
+
+`task bench` prints a compact `ms/op` table and saves the raw Go benchmark
+output to `/tmp/ccsession-bench.txt`. Use `task bench-raw` when you want only
+the standard Go output. To compare two saved benchmark runs:
+
+```sh
+task benchstat BEFORE=/tmp/before.txt AFTER=/tmp/after.txt
 ```
 
 A few useful commands while developing:

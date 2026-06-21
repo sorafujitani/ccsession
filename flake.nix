@@ -22,6 +22,7 @@
             pkgs.go-tools
             pkgs.delve
             pkgs.goreleaser
+            pkgs.go-task
             pkgs.fzf
           ];
 

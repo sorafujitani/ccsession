@@ -180,3 +180,23 @@ func TestMessages_NonTextPartCountsAsEmptyTurn(t *testing.T) {
 		t.Errorf("got %v (total %d), want one empty-body turn", bodies(msgs), total)
 	}
 }
+
+func BenchmarkMessagesLargeSession(b *testing.B) {
+	f := newFixture(b, fixtureOpts{})
+	f.session("ses_large", "/tmp/large", "large", 100)
+	for i := range 1000 {
+		f.partsTurn("ses_large", "user", int64(i+1)*1000, "message "+itoa(int64(i)))
+	}
+	d := f.open()
+
+	b.ResetTimer()
+	for range b.N {
+		msgs, _, total, err := d.Messages("ses_large", 30)
+		if err != nil {
+			b.Fatalf("Messages: %v", err)
+		}
+		if total != 1000 || len(msgs) != 30 {
+			b.Fatalf("Messages returned total=%d len=%d, want 1000/30", total, len(msgs))
+		}
+	}
+}

@@ -427,3 +427,71 @@ func BenchmarkScanManySessions(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkGrepKeysHitAndMiss(b *testing.B) {
+	home := b.TempDir()
+	cwd := b.TempDir()
+	cache := b.TempDir()
+	b.Setenv(grep.EnvCacheDir, cache)
+	for i := range 512 {
+		id := fmt.Sprintf("bench-grep-%04d", i)
+		bodyText := "ordinary body"
+		if i%32 == 0 {
+			bodyText = "needle body"
+		}
+		body := `{"timestamp":"2026-06-14T00:00:00Z","type":"session_meta","payload":{"id":"` + id + `","timestamp":"2026-06-14T00:00:00Z","cwd":"` + cwd + `"}}` + "\n" +
+			`{"timestamp":"2026-06-14T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"` + bodyText + `"}]}}` + "\n"
+		writeSessionNamed(b, home, fmt.Sprintf("2026/06/14/%s.jsonl", id), body)
+	}
+	store := OpenAt(home)
+	for _, query := range []string{"needle", "not-present"} {
+		if _, err := store.GrepKeys(query, false); err != nil {
+			b.Fatalf("prewarm GrepKeys: %v", err)
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		query string
+	}{
+		{name: "hit", query: "needle"},
+		{name: "miss", query: "not-present"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			for range b.N {
+				keys, err := store.GrepKeys(tc.query, false)
+				if err != nil {
+					b.Fatalf("GrepKeys: %v", err)
+				}
+				if keys == nil {
+					b.Fatal("GrepKeys returned nil set")
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkMessagesLargeSession(b *testing.B) {
+	home := b.TempDir()
+	cwd := b.TempDir()
+	id := "bench-messages"
+	var body strings.Builder
+	body.WriteString(`{"timestamp":"2026-06-14T00:00:00Z","type":"session_meta","payload":{"id":"` + id + `","timestamp":"2026-06-14T00:00:00Z","cwd":"` + cwd + `"}}` + "\n")
+	for i := range 1000 {
+		ts := time.Date(2026, 6, 14, 0, 0, i%60, 0, time.UTC).Format(time.RFC3339)
+		body.WriteString(`{"timestamp":"` + ts + `","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"message ` + fmt.Sprint(i) + `"}]}}` + "\n")
+	}
+	writeSessionNamed(b, home, "2026/06/14/bench-messages.jsonl", body.String())
+	store := OpenAt(home)
+
+	b.ResetTimer()
+	for range b.N {
+		msgs, _, total, err := store.Messages(id, 30)
+		if err != nil {
+			b.Fatalf("Messages: %v", err)
+		}
+		if total != 1000 || len(msgs) != 30 {
+			b.Fatalf("Messages returned total=%d len=%d, want 1000/30", total, len(msgs))
+		}
+	}
+}
