@@ -17,7 +17,8 @@ working directory.
   grep over JSONL transcripts, with configurable mode-switch keys.
 - **Live preview** — last 30 messages of the highlighted session, with
   timestamps and roles. In grep mode the matched query is highlighted in the
-  preview so you can spot the hit at a glance.
+  preview so you can spot the hit at a glance. Set
+  `CCSESSION_PREVIEW_MESSAGES` to change the preview length.
 - **Faithful resume** — `chdir`s back to the session's original `cwd` before
   exec'ing the selected agent's resume command, so paths and tooling Just Work.
 - **Single static binary** — written in Go with no cgo; bundles a pure-Go
@@ -101,6 +102,7 @@ ccsession list  [--grep Q] [--regex] # emit TSV rows to stdout
 ccsession list --json --grep Q --limit 5 # emit structured rows for agents
 ccsession preview [--query Q] [--regex] <id> # render the preview pane (Q highlighted)
 ccsession preview --json <id>        # emit structured preview data for scripts/agents
+ccsession preview --no-color <id>    # force plain preview output
 ccsession resume-spec <id>           # print the resume target without launching it
 ccsession resume  <id>               # chdir to the session's cwd, exec the selected agent
 ccsession --version

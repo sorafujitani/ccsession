@@ -108,6 +108,85 @@ func TestRender_HeaderAndMessages(t *testing.T) {
 	}
 }
 
+func TestRender_DefaultsToNoColorForNonTTYOutput(t *testing.T) {
+	tmp := t.TempDir()
+	body := `{"type":"user","timestamp":"2026-05-26T10:00:00Z","message":{"role":"user","content":"hello world"}}` + "\n"
+	jsonl := filepath.Join(tmp, "a.jsonl")
+	if err := os.WriteFile(jsonl, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	s := &session.Session{
+		ID:        "abc",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		LastTime:  time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC),
+	}
+	var buf bytes.Buffer
+	if err := render(s, &buf, Options{Query: "hello", Out: &buf}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if strings.Contains(buf.String(), "\x1b[") {
+		t.Fatalf("non-TTY preview leaked ANSI: %q", buf.String())
+	}
+}
+
+func TestRender_ColorAlwaysEnablesANSI(t *testing.T) {
+	tmp := t.TempDir()
+	body := `{"type":"user","timestamp":"2026-05-26T10:00:00Z","message":{"role":"user","content":"hello world"}}` + "\n"
+	jsonl := filepath.Join(tmp, "a.jsonl")
+	if err := os.WriteFile(jsonl, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	s := &session.Session{
+		ID:        "abc",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		LastTime:  time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC),
+	}
+	var buf bytes.Buffer
+	if err := render(s, &buf, Options{Query: "hello", Color: "always"}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(buf.String(), ansi.Highlight+"hello"+ansi.Reset) {
+		t.Fatalf("color=always did not highlight query: %q", buf.String())
+	}
+}
+
+func TestColorEnabled(t *testing.T) {
+	t.Run("Color=always wins over NoColor", func(t *testing.T) {
+		if !colorEnabled(Options{Color: "always", NoColor: true}) {
+			t.Error("Color=always should override NoColor")
+		}
+	})
+	t.Run("Color=never disables", func(t *testing.T) {
+		if colorEnabled(Options{Color: "never"}) {
+			t.Error("Color=never should be false")
+		}
+	})
+	t.Run("NoColor disables", func(t *testing.T) {
+		if colorEnabled(Options{NoColor: true}) {
+			t.Error("NoColor should be false")
+		}
+	})
+	t.Run("NO_COLOR env disables", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "1")
+		if colorEnabled(Options{}) {
+			t.Error("NO_COLOR env should disable color")
+		}
+	})
+	t.Run("non-TTY writer defaults to off", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "")
+		var buf bytes.Buffer
+		if colorEnabled(Options{Out: &buf}) {
+			t.Error("non-*os.File Out should default to no color")
+		}
+	})
+}
+
 func TestRenderJSONFrom_StructuredBoundedPreview(t *testing.T) {
 	tmp := t.TempDir()
 	long := strings.Repeat("x", maxBodyLen+20)
@@ -224,6 +303,49 @@ func TestRender_CapsMessagesToMaxMessages(t *testing.T) {
 	}
 }
 
+func TestRender_UsesPreviewMessageEnv(t *testing.T) {
+	t.Setenv(EnvMessages, "2")
+	tmp := t.TempDir()
+	lines := []string{
+		`{"type":"user","timestamp":"2026-05-26T10:00:00Z","message":{"role":"user","content":"msg0"}}`,
+		`{"type":"user","timestamp":"2026-05-26T10:01:00Z","message":{"role":"user","content":"msg1"}}`,
+		`{"type":"user","timestamp":"2026-05-26T10:02:00Z","message":{"role":"user","content":"msg2"}}`,
+	}
+	jsonl := filepath.Join(tmp, "a.jsonl")
+	if err := os.WriteFile(jsonl, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &session.Session{
+		ID:        "abc",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		LastTime:  time.Date(2026, 5, 26, 10, 2, 0, 0, time.UTC),
+	}
+	var buf bytes.Buffer
+	if err := render(s, &buf, Options{}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "msg0") || !strings.Contains(out, "msg1") || !strings.Contains(out, "msg2") {
+		t.Fatalf("expected env limit to keep only msg1/msg2, got %q", out)
+	}
+	if !strings.Contains(out, "(3 msgs)") {
+		t.Fatalf("expected total count to stay 3, got %q", out)
+	}
+}
+
+func TestMessageLimitInvalidEnvFallsBackToDefault(t *testing.T) {
+	t.Setenv(EnvMessages, "nope")
+	if got := messageLimit(Options{}); got != maxMessages {
+		t.Fatalf("messageLimit invalid env = %d, want %d", got, maxMessages)
+	}
+	t.Setenv(EnvMessages, "0")
+	if got := messageLimit(Options{}); got != maxMessages {
+		t.Fatalf("messageLimit zero env = %d, want %d", got, maxMessages)
+	}
+}
+
 // B-4: a user/assistant message with no timestamp should render as "--:--"
 // instead of "00:00", which is indistinguishable from real midnight-UTC.
 func TestRender_ZeroTimestampShowsDashes(t *testing.T) {
@@ -332,7 +454,7 @@ func TestReadJSONLLine_KeepsLinesLargerThanReaderBuffer(t *testing.T) {
 }
 
 func TestHighlightMatches_BasicWrapsMatch(t *testing.T) {
-	got := highlightMatches("fix the login bug", Options{Query: "login"})
+	got := highlightMatches("fix the login bug", Options{Query: "login", Color: "always"})
 	want := "fix the " + ansi.Highlight + "login" + ansi.Reset + " bug"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -340,14 +462,14 @@ func TestHighlightMatches_BasicWrapsMatch(t *testing.T) {
 }
 
 func TestHighlightMatches_CaseInsensitive(t *testing.T) {
-	got := highlightMatches("the Login flow", Options{Query: "login"})
+	got := highlightMatches("the Login flow", Options{Query: "login", Color: "always"})
 	if !strings.Contains(got, ansi.Highlight+"Login"+ansi.Reset) {
 		t.Errorf("expected original-case match highlighted, got %q", got)
 	}
 }
 
 func TestHighlightMatches_MultipleMatches(t *testing.T) {
-	got := highlightMatches("foo and foo", Options{Query: "foo"})
+	got := highlightMatches("foo and foo", Options{Query: "foo", Color: "always"})
 	if strings.Count(got, ansi.Highlight) != 2 {
 		t.Errorf("expected 2 highlights, got %q", got)
 	}
@@ -370,14 +492,14 @@ func TestHighlightMatches_FixedStringTreatsMetacharsLiterally(t *testing.T) {
 	if got := highlightMatches("axb", Options{Query: "a.b"}); got != "axb" {
 		t.Errorf("metachar should be literal: got %q", got)
 	}
-	got := highlightMatches("a.b", Options{Query: "a.b"})
+	got := highlightMatches("a.b", Options{Query: "a.b", Color: "always"})
 	if !strings.Contains(got, ansi.Highlight+"a.b"+ansi.Reset) {
 		t.Errorf("expected literal a.b highlighted, got %q", got)
 	}
 }
 
 func TestHighlightMatches_RegexMode(t *testing.T) {
-	got := highlightMatches("axb", Options{Query: "a.b", Regex: true})
+	got := highlightMatches("axb", Options{Query: "a.b", Regex: true, Color: "always"})
 	if !strings.Contains(got, ansi.Highlight+"axb"+ansi.Reset) {
 		t.Errorf("expected regex match, got %q", got)
 	}
@@ -404,7 +526,7 @@ func TestRender_HighlightsQueryInBody(t *testing.T) {
 		LastTime:  time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC),
 	}
 	var buf bytes.Buffer
-	if err := render(s, &buf, Options{Query: "login"}); err != nil {
+	if err := render(s, &buf, Options{Query: "login", Color: "always"}); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	if !strings.Contains(buf.String(), ansi.Highlight+"login"+ansi.Reset) {

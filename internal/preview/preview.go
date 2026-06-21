@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,14 +22,18 @@ import (
 // matches in the message bodies; Regex treats Query as a regular expression
 // (mirroring grep.Options).
 type Options struct {
-	Query   string
-	Regex   bool
-	Locator string
-	JSON    bool
-	Out     io.Writer
+	Query        string
+	Regex        bool
+	Locator      string
+	JSON         bool
+	Color        string
+	NoColor      bool
+	MessageLimit int
+	Out          io.Writer
 }
 
 const (
+	EnvMessages = "CCSESSION_PREVIEW_MESSAGES"
 	maxMessages = 30
 	maxBodyLen  = 200
 )
@@ -110,27 +115,29 @@ type routeSource interface {
 }
 
 func renderFrom(src source.Source, s *session.Session, out io.Writer, opts Options) error {
+	limit := messageLimit(opts)
 	if ms, ok := src.(messageSource); ok {
-		msgs, startedAt, total, err := ms.Messages(s, maxMessages)
+		msgs, startedAt, total, err := ms.Messages(s, limit)
 		return renderWith(s, out, opts, msgs, startedAt, total, err)
 	}
 	return render(s, out, opts)
 }
 
 func renderJSONFrom(src source.Source, s *session.Session, out io.Writer, opts Options) error {
-	msgs, startedAt, total, loadErr, err := previewData(src, s)
+	msgs, startedAt, total, loadErr, err := previewData(src, s, opts)
 	if err != nil {
 		return err
 	}
 	return writeJSONPreview(s, out, opts, msgs, startedAt, total, loadErr)
 }
 
-func previewData(src source.Source, s *session.Session) ([]session.Message, time.Time, int, error, error) {
+func previewData(src source.Source, s *session.Session, opts Options) ([]session.Message, time.Time, int, error, error) {
+	limit := messageLimit(opts)
 	if ms, ok := src.(messageSource); ok {
-		msgs, startedAt, total, loadErr := ms.Messages(s, maxMessages)
+		msgs, startedAt, total, loadErr := ms.Messages(s, limit)
 		return msgs, startedAt, total, loadErr, nil
 	}
-	msgs, startedAt, total, err := loadMessages(s.JSONLPath)
+	msgs, startedAt, total, err := loadMessages(s.JSONLPath, limit)
 	return msgs, startedAt, total, nil, err
 }
 
@@ -180,7 +187,7 @@ func formatJSONTime(t time.Time) string {
 }
 
 func render(s *session.Session, out io.Writer, opts Options) error {
-	messages, startedAt, totalMsgs, err := loadMessages(s.JSONLPath)
+	messages, startedAt, totalMsgs, err := loadMessages(s.JSONLPath, messageLimit(opts))
 	if err != nil {
 		return err
 	}
@@ -198,38 +205,39 @@ func renderWith(s *session.Session, out io.Writer, opts Options, messages []sess
 	now := time.Now()
 	w := bufio.NewWriter(out)
 	defer w.Flush()
+	c := colorsFor(opts)
 
-	fmt.Fprintf(w, "%ssession%s : %s\n", ansi.Bold, ansi.Reset, s.ID)
+	fmt.Fprintf(w, "%ssession%s : %s\n", c.bold, c.reset, s.ID)
 	cwd := s.CWD
 	if cwd == "" {
 		cwd = "(unknown)"
 	}
 	if !s.CWDExists {
-		cwd = ansi.Yellow + cwd + " [gone]" + ansi.Reset
+		cwd = c.yellow + cwd + " [gone]" + c.reset
 	} else {
-		cwd = ansi.Cyan + cwd + ansi.Reset
+		cwd = c.cyan + cwd + c.reset
 	}
-	fmt.Fprintf(w, "%sproject%s : %s\n", ansi.Bold, ansi.Reset, cwd)
+	fmt.Fprintf(w, "%sproject%s : %s\n", c.bold, c.reset, cwd)
 	fmt.Fprintf(w, "%sstarted%s : %s  %s(%s)%s\n",
-		ansi.Bold, ansi.Reset,
+		c.bold, c.reset,
 		startedAt.Local().Format("2006-01-02 15:04"),
-		ansi.Dim, relativeOrFuture(startedAt, now), ansi.Reset,
+		c.dim, relativeOrFuture(startedAt, now), c.reset,
 	)
 	fmt.Fprintf(w, "%slast%s    : %s  %s(%d msgs)%s\n",
-		ansi.Bold, ansi.Reset,
+		c.bold, c.reset,
 		s.LastTime.Local().Format("2006-01-02 15:04"),
-		ansi.Dim, totalMsgs, ansi.Reset,
+		c.dim, totalMsgs, c.reset,
 	)
-	fmt.Fprintln(w, ansi.Dim+strings.Repeat("─", 60)+ansi.Reset)
+	fmt.Fprintln(w, c.dim+strings.Repeat("─", 60)+c.reset)
 
 	if loadErr != nil {
-		fmt.Fprintf(w, "%s(messages unavailable: %v)%s\n", ansi.Dim, loadErr, ansi.Reset)
+		fmt.Fprintf(w, "%s(messages unavailable: %v)%s\n", c.dim, loadErr, c.reset)
 		return nil
 	}
 
 	tail := messages
-	if len(tail) > maxMessages {
-		tail = tail[len(tail)-maxMessages:]
+	if limit := messageLimit(opts); len(tail) > limit {
+		tail = tail[len(tail)-limit:]
 	}
 	for _, m := range tail {
 		writeMessage(w, m, opts)
@@ -239,10 +247,11 @@ func renderWith(s *session.Session, out io.Writer, opts Options, messages []sess
 
 func writeMessage(w io.Writer, m session.Message, opts Options) {
 	role := m.Role
-	color := ansi.Green
+	c := colorsFor(opts)
+	color := c.green
 	if role == "assistant" {
 		role = "asst"
-		color = ansi.Cyan
+		color = c.cyan
 	}
 	// A zero time renders as "00:00" by default, which is indistinguishable
 	// from an actual midnight-UTC message; render it as "--:--" instead.
@@ -251,7 +260,7 @@ func writeMessage(w io.Writer, m session.Message, opts Options) {
 		stamp = m.Timestamp.Local().Format("15:04")
 	}
 	body := highlightMatches(truncateBody(m.Body), opts)
-	fmt.Fprintf(w, "%s[%s %s]%s %s\n", color, role, stamp, ansi.Reset, body)
+	fmt.Fprintf(w, "%s[%s %s]%s %s\n", color, role, stamp, c.reset, body)
 }
 
 // highlightMatches wraps every case-insensitive match of opts.Query in s with
@@ -259,6 +268,10 @@ func writeMessage(w io.Writer, m session.Message, opts Options) {
 // are treated literally; an invalid regex (in Regex mode) leaves s untouched.
 func highlightMatches(s string, opts Options) string {
 	if strings.TrimSpace(opts.Query) == "" {
+		return s
+	}
+	c := colorsFor(opts)
+	if c.highlight == "" {
 		return s
 	}
 	pattern := opts.Query
@@ -281,9 +294,9 @@ func highlightMatches(s string, opts Options) string {
 			continue
 		}
 		b.WriteString(s[last:loc[0]])
-		b.WriteString(ansi.Highlight)
+		b.WriteString(c.highlight)
 		b.WriteString(s[loc[0]:loc[1]])
-		b.WriteString(ansi.Reset)
+		b.WriteString(c.reset)
 		last = loc[1]
 	}
 	b.WriteString(s[last:])
@@ -315,7 +328,7 @@ func truncateBody(s string) string {
 // to bufio.Reader + ReadString lets us skip the oversize line and continue.
 const previewLineCap = 16 * 1024 * 1024
 
-func loadMessages(path string) ([]session.Message, time.Time, int, error) {
+func loadMessages(path string, limit int) ([]session.Message, time.Time, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, time.Time{}, 0, err
@@ -324,12 +337,12 @@ func loadMessages(path string) ([]session.Message, time.Time, int, error) {
 
 	r := bufio.NewReaderSize(f, 64*1024)
 
-	// render only displays the last maxMessages items, so we keep a ring
+	// render only displays the last N items, so we keep a ring
 	// buffer of that size rather than accumulating every message. startedAt
 	// (first message time) and total (overall count) are still derived from
 	// the full scan so the header stays accurate.
 	var (
-		ring      = make([]session.Message, maxMessages)
+		ring      = make([]session.Message, limit)
 		startedAt time.Time
 		total     int
 	)
@@ -340,7 +353,7 @@ func loadMessages(path string) ([]session.Message, time.Time, int, error) {
 				if startedAt.IsZero() && !ts.IsZero() {
 					startedAt = ts
 				}
-				ring[total%maxMessages] = item
+				ring[total%limit] = item
 				total++
 			}
 		}
@@ -354,23 +367,78 @@ func loadMessages(path string) ([]session.Message, time.Time, int, error) {
 }
 
 // collectRing returns the buffered messages in chronological (ascending)
-// order, at most maxMessages of them. total is the overall number of items
-// written into the ring; when it exceeds maxMessages the oldest entries have
-// been overwritten and the live window starts at total%maxMessages.
+// order, at most len(ring) of them. total is the overall number of items
+// written into the ring; when it exceeds len(ring) the oldest entries have
+// been overwritten.
 func collectRing(ring []session.Message, total int) []session.Message {
-	n := min(total, maxMessages)
+	n := min(total, len(ring))
 	if n == 0 {
 		return nil
 	}
 	out := make([]session.Message, 0, n)
 	start := 0
-	if total > maxMessages {
-		start = total % maxMessages
+	if total > len(ring) {
+		start = total % len(ring)
 	}
 	for i := range n {
-		out = append(out, ring[(start+i)%maxMessages])
+		out = append(out, ring[(start+i)%len(ring)])
 	}
 	return out
+}
+
+type colors struct {
+	bold      string
+	reset     string
+	yellow    string
+	cyan      string
+	dim       string
+	green     string
+	highlight string
+}
+
+func colorsFor(opts Options) colors {
+	if !colorEnabled(opts) {
+		return colors{}
+	}
+	return colors{
+		bold:      ansi.Bold,
+		reset:     ansi.Reset,
+		yellow:    ansi.Yellow,
+		cyan:      ansi.Cyan,
+		dim:       ansi.Dim,
+		green:     ansi.Green,
+		highlight: ansi.Highlight,
+	}
+}
+
+func colorEnabled(opts Options) bool {
+	switch strings.ToLower(opts.Color) {
+	case "always":
+		return true
+	case "never":
+		return false
+	}
+	if opts.NoColor || os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	if f, ok := opts.Out.(*os.File); ok {
+		fi, err := f.Stat()
+		return err == nil && (fi.Mode()&os.ModeCharDevice) != 0
+	}
+	return false
+}
+
+func messageLimit(opts Options) int {
+	if opts.MessageLimit > 0 {
+		return opts.MessageLimit
+	}
+	if raw := strings.TrimSpace(os.Getenv(EnvMessages)); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err == nil && n > 0 {
+			return n
+		}
+	}
+	return maxMessages
 }
 
 // readJSONLLine returns one logical line from r. A line longer than max
