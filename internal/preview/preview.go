@@ -235,19 +235,19 @@ func renderWith(s *session.Session, out io.Writer, opts Options, messages []sess
 		return nil
 	}
 
+	highlight := compileHighlight(opts, c)
 	tail := messages
 	if limit := messageLimit(opts); len(tail) > limit {
 		tail = tail[len(tail)-limit:]
 	}
 	for _, m := range tail {
-		writeMessage(w, m, opts)
+		writeMessage(w, m, c, highlight)
 	}
 	return nil
 }
 
-func writeMessage(w io.Writer, m session.Message, opts Options) {
+func writeMessage(w io.Writer, m session.Message, c colors, highlight *regexp.Regexp) {
 	role := m.Role
-	c := colorsFor(opts)
 	color := c.green
 	if role == "assistant" {
 		role = "asst"
@@ -259,20 +259,19 @@ func writeMessage(w io.Writer, m session.Message, opts Options) {
 	if !m.Timestamp.IsZero() {
 		stamp = m.Timestamp.Local().Format("15:04")
 	}
-	body := highlightMatches(truncateBody(m.Body), opts)
+	body := highlightMatches(truncateBody(m.Body), c, highlight)
 	fmt.Fprintf(w, "%s[%s %s]%s %s\n", color, role, stamp, c.reset, body)
 }
 
-// highlightMatches wraps every case-insensitive match of opts.Query in s with
-// the highlight color. A fixed-string query is escaped so regex metacharacters
-// are treated literally; an invalid regex (in Regex mode) leaves s untouched.
-func highlightMatches(s string, opts Options) string {
+// compileHighlight returns the per-render highlighter. A fixed-string query is
+// escaped so regex metacharacters are treated literally; an invalid regex (in
+// Regex mode) leaves text untouched.
+func compileHighlight(opts Options, c colors) *regexp.Regexp {
 	if strings.TrimSpace(opts.Query) == "" {
-		return s
+		return nil
 	}
-	c := colorsFor(opts)
 	if c.highlight == "" {
-		return s
+		return nil
 	}
 	pattern := opts.Query
 	if !opts.Regex {
@@ -280,6 +279,15 @@ func highlightMatches(s string, opts Options) string {
 	}
 	re, err := regexp.Compile("(?i)" + pattern)
 	if err != nil {
+		return nil
+	}
+	return re
+}
+
+// highlightMatches wraps every case-insensitive match in s with the highlight
+// color. A nil regexp leaves s untouched.
+func highlightMatches(s string, c colors, re *regexp.Regexp) string {
+	if re == nil {
 		return s
 	}
 	locs := re.FindAllStringIndex(s, -1)
