@@ -130,6 +130,7 @@ func fixtureHome(t *testing.T, content string) string {
 		t.Fatalf("write: %v", err)
 	}
 	t.Setenv("HOME", home)
+	t.Setenv(session.EnvCacheDir, filepath.Join(t.TempDir(), "scan-cache"))
 	return id
 }
 

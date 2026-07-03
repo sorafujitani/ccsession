@@ -16,19 +16,22 @@ func makeFakeHome(t *testing.T) (string, string) {
 	if err := os.MkdirAll(projects, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
+	t.Setenv(EnvCacheDir, filepath.Join(t.TempDir(), "scan-cache"))
 	return home, projects
 }
 
-func writeSessionFile(t *testing.T, dir, name, ts, label string) {
+func writeSessionFile(t *testing.T, dir, name, ts, label string) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	body := `{"type":"user","timestamp":"` + ts + `","cwd":"` + dir + `","message":{"role":"user","content":"hi"}}` + "\n" +
 		`{"type":"ai-title","aiTitle":"` + label + `"}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
+	return path
 }
 
 func TestProjectsDir_UsesHomeEnv(t *testing.T) {

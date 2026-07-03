@@ -199,6 +199,7 @@ func TestRun_JSONLimit(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv(session.EnvCacheDir, filepath.Join(t.TempDir(), "scan-cache"))
 	t.Setenv(source.EnvVar, "")
 	writeListSession(t, home, cwd, "11111111-1111-1111-1111-111111111111", "2026-05-26T10:00:00Z", "older")
 	writeListSession(t, home, cwd, "22222222-2222-2222-2222-222222222222", "2026-05-26T11:00:00Z", "newer")
@@ -249,6 +250,7 @@ func BenchmarkRunJSONThousandSessions(b *testing.B) {
 	home := b.TempDir()
 	cwd := b.TempDir()
 	b.Setenv("HOME", home)
+	b.Setenv(session.EnvCacheDir, filepath.Join(b.TempDir(), "scan-cache"))
 	b.Setenv(source.EnvVar, "")
 	for i := range 1000 {
 		id := fmt.Sprintf("11111111-1111-1111-1111-%012d", i)
@@ -269,6 +271,7 @@ func BenchmarkRunGrepJSONHitAndMiss(b *testing.B) {
 	cwd := b.TempDir()
 	cache := b.TempDir()
 	b.Setenv("HOME", home)
+	b.Setenv(session.EnvCacheDir, filepath.Join(b.TempDir(), "scan-cache"))
 	b.Setenv(source.EnvVar, "")
 	b.Setenv("CCSESSION_GREP_CACHE_DIR", cache)
 	for i := range 512 {

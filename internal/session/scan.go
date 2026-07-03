@@ -112,7 +112,7 @@ func scanPaths(paths []string) []*Session {
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			s, err := ParseSessionTail(p, TailReadBytes)
+			s, err := cachedParseSessionTail(p)
 			if err != nil || s == nil {
 				return
 			}
