@@ -151,6 +151,36 @@ func TestGrepKeys_FindsUnicodeCaseFoldMatch(t *testing.T) {
 	}
 }
 
+func TestGrepKeys_BatchedBodiesWhenPrefilterDisabled(t *testing.T) {
+	f := newFixture(t, fixtureOpts{})
+	for i := range 40 {
+		id := "ses_batch_" + itoa(int64(i))
+		f.session(id, "/p/"+id, "zzz", int64(i+1)*100)
+		body := "zzz"
+		if i == 37 {
+			body = "İstanbul notes"
+		}
+		f.partsTurn(id, "user", int64(i+1)*100, body)
+	}
+
+	got := keysSorted(mustGrep(t, f.open(), "i", false))
+	if !slices.Equal(got, []string{"ses_batch_37"}) {
+		t.Fatalf("batched disabled-prefilter grep = %v, want [ses_batch_37]", got)
+	}
+}
+
+func TestGrepKeys_ProjectionPreferredOverParts(t *testing.T) {
+	f := newFixture(t, fixtureOpts{})
+	f.session("ses_projection", "/p", "ordinary", 100)
+	f.projectionRow("ses_projection", "user", 1, `{"text":"projection text","time":{"created":10}}`)
+	f.partsTurn("ses_projection", "user", 10, "needle only in ignored parts")
+
+	got := mustGrep(t, f.open(), "needle", false)
+	if contains(got, "ses_projection") {
+		t.Fatalf("grep matched parts despite renderable projection: %v", keysSorted(got))
+	}
+}
+
 func contains(m map[string]struct{}, k string) bool {
 	_, ok := m[k]
 	return ok
@@ -214,6 +244,40 @@ func BenchmarkGrepKeysHitAndMiss(b *testing.B) {
 	}{
 		{name: "hit", query: "needle"},
 		{name: "miss", query: "not-present"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			for range b.N {
+				keys, err := d.GrepKeys(tc.query, false)
+				if err != nil {
+					b.Fatalf("GrepKeys: %v", err)
+				}
+				if keys == nil {
+					b.Fatal("GrepKeys returned nil set")
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkGrepKeysPrefilterDisabled(b *testing.B) {
+	f := newFixture(b, fixtureOpts{})
+	for i := range 512 {
+		id := "ses_disabled_" + itoa(int64(i))
+		f.session(id, "/tmp/"+id, "zzz", int64(i+1)*1000)
+		body := "zzz"
+		if i%64 == 0 {
+			body = "İstanbul notes"
+		}
+		f.partsTurn(id, "user", int64(i+1)*1000, body)
+	}
+	d := f.open()
+
+	for _, tc := range []struct {
+		name  string
+		query string
+	}{
+		{name: "hit", query: "i"},
+		{name: "miss", query: "k"},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			for range b.N {
