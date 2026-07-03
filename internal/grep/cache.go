@@ -1,24 +1,41 @@
 package grep
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
+const EnvCacheDir = "CCSESSION_GREP_CACHE_DIR"
+
 const (
-	EnvCacheDir = "CCSESSION_GREP_CACHE_DIR"
+	cacheVersion     = 2
+	cacheIndexName   = "index.json"
+	cacheTextSep     = "\x00"
+	defaultCachePerm = 0o600
+	defaultCacheDir  = 0o700
 )
 
 type cacheRecord struct {
-	Path            string   `json:"path"`
-	Size            int64    `json:"size"`
-	ModTimeUnixNano int64    `json:"mod_time_unix_nano"`
-	Texts           []string `json:"texts"`
+	Version         int    `json:"v"`
+	Path            string `json:"path"`
+	Size            int64  `json:"size"`
+	ModTimeUnixNano int64  `json:"mod_time_unix_nano"`
+	Text            string `json:"text"`
+	Fragments       int    `json:"fragments"`
 }
+
+type cacheIndex struct {
+	path    string
+	records map[string]cacheRecord
+}
+
+var (
+	indexMu    sync.Mutex
+	indexByDir = map[string]*cacheIndex{}
+)
 
 // CachedFileTexts returns extracted searchable text for path, reusing a
 // metadata-validated on-disk cache when possible.
@@ -32,20 +49,25 @@ func CachedFileTexts(path string, read func(string) ([]string, error)) ([]string
 		return read(path)
 	}
 
-	cachePath := filepath.Join(dir, cacheFileName(path))
-	if rec, ok := readCache(cachePath, path, fi); ok {
-		return rec.Texts, nil
+	idx := loadIndex(dir)
+	if idx == nil {
+		return read(path)
+	}
+	if rec, ok := idx.record(path, fi); ok {
+		return splitCacheText(rec), nil
 	}
 
 	texts, err := read(path)
 	if err != nil {
 		return nil, err
 	}
-	_ = writeCache(cachePath, cacheRecord{
+	idx.set(path, cacheRecord{
+		Version:         cacheVersion,
 		Path:            path,
 		Size:            fi.Size(),
 		ModTimeUnixNano: fi.ModTime().UnixNano(),
-		Texts:           texts,
+		Text:            strings.Join(texts, cacheTextSep),
+		Fragments:       len(texts),
 	})
 	return texts, nil
 }
@@ -81,21 +103,37 @@ func cacheDir() (string, error) {
 	return filepath.Join(base, "ccsession", "grep"), nil
 }
 
-func cacheFileName(path string) string {
-	sum := sha256.Sum256([]byte(path))
-	return hex.EncodeToString(sum[:]) + ".json"
+func loadIndex(dir string) *cacheIndex {
+	indexMu.Lock()
+	defer indexMu.Unlock()
+	if idx := indexByDir[dir]; idx != nil {
+		return idx
+	}
+	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
+		return nil
+	}
+	idx := &cacheIndex{
+		path:    filepath.Join(dir, cacheIndexName),
+		records: map[string]cacheRecord{},
+	}
+	b, err := os.ReadFile(idx.path)
+	if err == nil {
+		_ = json.Unmarshal(b, &idx.records)
+		if idx.records == nil {
+			idx.records = map[string]cacheRecord{}
+		}
+	}
+	indexByDir[dir] = idx
+	return idx
 }
 
-func readCache(path, transcriptPath string, fi os.FileInfo) (cacheRecord, bool) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return cacheRecord{}, false
-	}
-	var rec cacheRecord
-	if err := json.Unmarshal(b, &rec); err != nil {
-		return cacheRecord{}, false
-	}
-	if rec.Path != transcriptPath ||
+func (idx *cacheIndex) record(path string, fi os.FileInfo) (cacheRecord, bool) {
+	indexMu.Lock()
+	defer indexMu.Unlock()
+	rec, ok := idx.records[path]
+	if !ok ||
+		rec.Version != cacheVersion ||
+		rec.Path != path ||
 		rec.Size != fi.Size() ||
 		rec.ModTimeUnixNano != fi.ModTime().UnixNano() {
 		return cacheRecord{}, false
@@ -103,8 +141,31 @@ func readCache(path, transcriptPath string, fi os.FileInfo) (cacheRecord, bool) 
 	return rec, true
 }
 
-func writeCache(path string, rec cacheRecord) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+func (idx *cacheIndex) set(path string, rec cacheRecord) {
+	indexMu.Lock()
+	idx.records[path] = rec
+	snapshot := make(map[string]cacheRecord, len(idx.records))
+	for k, v := range idx.records {
+		snapshot[k] = v
+	}
+	indexMu.Unlock()
+
+	_ = writeIndex(idx.path, snapshot)
+}
+
+func splitCacheText(rec cacheRecord) []string {
+	switch rec.Fragments {
+	case 0:
+		return nil
+	case 1:
+		return []string{rec.Text}
+	default:
+		return strings.Split(rec.Text, cacheTextSep)
+	}
+}
+
+func writeIndex(path string, records map[string]cacheRecord) error {
+	if err := os.MkdirAll(filepath.Dir(path), defaultCacheDir); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-")
@@ -114,11 +175,11 @@ func writeCache(path string, rec cacheRecord) error {
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 
-	if err := json.NewEncoder(tmp).Encode(rec); err != nil {
+	if err := json.NewEncoder(tmp).Encode(records); err != nil {
 		_ = tmp.Close()
 		return err
 	}
-	if err := tmp.Chmod(0o600); err != nil {
+	if err := tmp.Chmod(defaultCachePerm); err != nil {
 		_ = tmp.Close()
 		return err
 	}
