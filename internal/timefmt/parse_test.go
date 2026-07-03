@@ -42,3 +42,23 @@ func TestParse(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkParse(b *testing.B) {
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{name: "RFC3339Nano", raw: "2026-05-26T12:34:56.123456789Z"},
+		{name: "RFC3339", raw: "2026-05-26T12:34:56Z"},
+		{name: "empty", raw: ""},
+		{name: "invalid", raw: "not-a-timestamp"},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			for b.Loop() {
+				_ = Parse(tc.raw)
+			}
+		})
+	}
+}
