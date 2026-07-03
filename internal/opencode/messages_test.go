@@ -169,6 +169,25 @@ func TestMessages_LimitReturnsNewestN(t *testing.T) {
 	}
 }
 
+func TestMessages_LimitEqualCountReturnsAll(t *testing.T) {
+	f := newFixture(t, fixtureOpts{})
+	f.session("ses_a", "/p", "t", 100)
+	for i := 1; i <= 3; i++ {
+		f.partsTurn("ses_a", "user", int64(i*10), itoa(int64(i)))
+	}
+
+	msgs, started, total, err := f.open().Messages("ses_a", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 3 || started.UnixMilli() != 10 {
+		t.Fatalf("total/started = %d/%d, want 3/10", total, started.UnixMilli())
+	}
+	if got, want := bodies(msgs), []string{"user:1", "user:2", "user:3"}; !slices.Equal(got, want) {
+		t.Fatalf("limited equal messages = %v, want %v", got, want)
+	}
+}
+
 func TestMessages_NonTextPartCountsAsEmptyTurn(t *testing.T) {
 	f := newFixture(t, fixtureOpts{})
 	f.session("ses_a", "/p", "t", 100)

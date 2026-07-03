@@ -1,9 +1,11 @@
 package opencode
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/sorafujitani/ccsession/internal/grep"
+	"github.com/sorafujitani/ccsession/internal/session"
 )
 
 // GrepKeys returns the set of root session ids whose title or message text
@@ -30,14 +32,16 @@ func (d *DB) GrepKeys(query string, regex bool) (map[string]struct{}, error) {
 	}
 
 	set := make(map[string]struct{})
+	var bodyRoots []rootRow
 	for _, r := range roots {
-		hit, err := d.sessionMatches(r, match)
-		if err != nil {
-			return nil, err
-		}
-		if hit {
+		if match(r.title) {
 			set[r.id] = struct{}{}
+			continue
 		}
+		bodyRoots = append(bodyRoots, r)
+	}
+	if err := d.matchBodies(bodyRoots, match, set); err != nil {
+		return nil, err
 	}
 	return set, nil
 }
@@ -84,20 +88,162 @@ WHERE parent_id IS NULL AND time_archived IS NULL`
 	return out, rows.Err()
 }
 
-func (d *DB) sessionMatches(r rootRow, match func(string) bool) (bool, error) {
-	if match(r.title) {
-		return true, nil
+func (d *DB) matchBodies(roots []rootRow, match func(string) bool, set map[string]struct{}) error {
+	if len(roots) == 0 {
+		return nil
 	}
-	msgs, _, _, err := d.Messages(r.id, 0)
-	if err != nil {
-		return false, err
-	}
-	for _, m := range msgs {
-		if match(m.Body) {
-			return true, nil
+	for _, chunk := range chunkRoots(roots, 500) {
+		hasProjection, err := d.matchProjectionBodies(chunk, match, set)
+		if err != nil {
+			return err
+		}
+		var fallback []rootRow
+		for _, r := range chunk {
+			if _, ok := hasProjection[r.id]; !ok {
+				fallback = append(fallback, r)
+			}
+		}
+		if err := d.matchPartBodies(fallback, match, set); err != nil {
+			return err
 		}
 	}
-	return false, nil
+	return nil
+}
+
+func (d *DB) matchProjectionBodies(roots []rootRow, match func(string) bool, set map[string]struct{}) (map[string]struct{}, error) {
+	hasProjection := make(map[string]struct{})
+	if len(roots) == 0 {
+		return hasProjection, nil
+	}
+	q, args := inQuery(`SELECT session_id, type, data
+FROM session_message
+WHERE session_id IN (%s) AND type IN ('user', 'assistant')
+ORDER BY session_id, seq, id`, rootIDs(roots))
+	rows, err := d.query(q, args...)
+	if err != nil {
+		if isMissingTable(err) {
+			return hasProjection, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sessionID string
+		var typ string
+		var data []byte
+		if err := rows.Scan(&sessionID, &typ, &data); err != nil {
+			return nil, err
+		}
+		msg := projectionMessage(typ, data)
+		if msg.Body == "" {
+			continue
+		}
+		hasProjection[sessionID] = struct{}{}
+		if _, matched := set[sessionID]; matched {
+			continue
+		}
+		if match(msg.Body) {
+			set[sessionID] = struct{}{}
+		}
+	}
+	return hasProjection, rows.Err()
+}
+
+func (d *DB) matchPartBodies(roots []rootRow, match func(string) bool, set map[string]struct{}) error {
+	if len(roots) == 0 {
+		return nil
+	}
+	q, args := inQuery(`SELECT m.session_id, m.id, m.data, p.data
+FROM message m
+LEFT JOIN part p ON p.message_id = m.id
+WHERE m.session_id IN (%s)
+ORDER BY m.session_id, m.time_created, m.id, p.id`, rootIDs(roots))
+	rows, err := d.query(q, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var (
+		curSession string
+		curMsgID   string
+		cur        *sessionBody
+	)
+	flush := func() {
+		if cur == nil || !isRenderableRole(cur.role) {
+			return
+		}
+		if _, matched := set[curSession]; matched {
+			return
+		}
+		if match(cur.body) {
+			set[curSession] = struct{}{}
+		}
+	}
+	for rows.Next() {
+		var sessionID string
+		var msgID string
+		var msgData []byte
+		var part []byte
+		if err := rows.Scan(&sessionID, &msgID, &msgData, &part); err != nil {
+			return err
+		}
+		if _, matched := set[sessionID]; matched {
+			continue
+		}
+		if cur == nil || sessionID != curSession || msgID != curMsgID {
+			flush()
+			curSession = sessionID
+			curMsgID = msgID
+			msg := newTurn(msgData)
+			cur = &sessionBody{role: msg.Role}
+		}
+		appendBodyText(&cur.body, part)
+	}
+	flush()
+	return rows.Err()
+}
+
+type sessionBody struct {
+	role string
+	body string
+}
+
+func appendBodyText(body *string, partData []byte) {
+	msg := &session.Message{Body: *body}
+	appendText(msg, partData)
+	*body = msg.Body
+}
+
+func chunkRoots(roots []rootRow, size int) [][]rootRow {
+	var chunks [][]rootRow
+	for len(roots) > 0 {
+		n := min(len(roots), size)
+		chunks = append(chunks, roots[:n])
+		roots = roots[n:]
+	}
+	return chunks
+}
+
+func rootIDs(roots []rootRow) []string {
+	ids := make([]string, len(roots))
+	for i, r := range roots {
+		ids[i] = r.id
+	}
+	return ids
+}
+
+func inQuery(format string, ids []string) (string, []any) {
+	var b strings.Builder
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('?')
+		args[i] = id
+	}
+	return fmt.Sprintf(format, b.String()), args
 }
 
 // asciiFoldTargets are the ASCII letters a non-ASCII rune lower-cases onto
