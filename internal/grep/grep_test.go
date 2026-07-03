@@ -280,7 +280,7 @@ func BenchmarkFilterRepeatedQuery(b *testing.B) {
 func writeBenchmarkProjects(b *testing.B) {
 	b.Helper()
 	projects := makeProjects(b)
-	for i := range 64 {
+	for i := range 512 {
 		body := strings.Repeat("ordinary transcript text\n", 128)
 		if i%8 == 0 {
 			body += "needle\n"
