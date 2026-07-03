@@ -44,7 +44,7 @@
           # go.mod の依存（TOML パーサ + pure-Go SQLite ドライバ）を取得・
           # 検証する固定出力ハッシュ。依存を更新したら一旦 pkgs.lib.fakeHash
           # に戻してビルドし、報告された hash を貼り直す。
-          vendorHash = "sha256-yBf0ScxjkCRb6Cp/QnGpR3O/llTPqc4vIQSMZ5hoP/o=";
+          vendorHash = "sha256-87X5go1iG4gqUTHXbZoxWuAhk+jWv6OBIQVb5UfFfzs=";
           subPackages = [ "cmd/ccsession" ];
           ldflags = [
             "-s"
