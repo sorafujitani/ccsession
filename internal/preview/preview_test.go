@@ -403,6 +403,70 @@ func TestRender_FutureSessionHeaderSaysFuture(t *testing.T) {
 	}
 }
 
+func TestMightBeMessage(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{
+			name: "user compact",
+			line: `{"type":"user","message":{"role":"user","content":"hi"}}`,
+			want: true,
+		},
+		{
+			name: "assistant spaced",
+			line: `{"type" : "assistant","message":{"role":"assistant","content":"hi"}}`,
+			want: true,
+		},
+		{
+			name: "tool result",
+			line: `{"type":"tool_result","content":"hi"}`,
+			want: false,
+		},
+		{
+			name: "false positive body",
+			line: `{"type":"tool_result","content":{"type":"user"}}`,
+			want: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mightBeMessage(tc.line); got != tc.want {
+				t.Fatalf("mightBeMessage() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadMessages_PrefilterFalsePositiveToolResult(t *testing.T) {
+	tmp := t.TempDir()
+	jsonl := filepath.Join(tmp, "false-positive.jsonl")
+	body := strings.Join([]string{
+		`{"type":"tool_result","content":{"type":"user","content":"not a top-level message"}}`,
+		`{"type":"user","timestamp":"2026-05-26T10:00:00Z","message":{"role":"user","content":"real message"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(jsonl, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	msgs, startedAt, total, err := loadMessages(jsonl, 30)
+	if err != nil {
+		t.Fatalf("loadMessages: %v", err)
+	}
+	if total != 1 || len(msgs) != 1 {
+		t.Fatalf("messages = total:%d len:%d, want 1/1", total, len(msgs))
+	}
+	if msgs[0].Body != "real message" {
+		t.Fatalf("message body = %q", msgs[0].Body)
+	}
+	want := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+	if !startedAt.Equal(want) {
+		t.Fatalf("startedAt = %v, want %v", startedAt, want)
+	}
+}
+
 // B-11: a line longer than the byte cap used to be returned as a
 // bufio.Scanner error that aborted the whole scan, leaving the preview
 // half-rendered. The Reader-based loader skips the oversize line and
@@ -678,6 +742,16 @@ func BenchmarkRenderTextHighlightLargeTranscript(b *testing.B) {
 	}
 }
 
+func BenchmarkRenderTextToolHeavyTranscript(b *testing.B) {
+	s := benchmarkToolHeavyPreviewSession(b, 100, 900)
+	b.ResetTimer()
+	for range b.N {
+		if err := render(s, ioDiscard{}, Options{}); err != nil {
+			b.Fatalf("render: %v", err)
+		}
+	}
+}
+
 func benchmarkPreviewSession(b *testing.B, messages int) *session.Session {
 	b.Helper()
 	tmp := b.TempDir()
@@ -698,6 +772,34 @@ func benchmarkPreviewSession(b *testing.B, messages int) *session.Session {
 		CWD:       tmp,
 		CWDExists: true,
 		LastTime:  base.Add(time.Duration(messages-1) * time.Second),
+	}
+}
+
+func benchmarkToolHeavyPreviewSession(b *testing.B, messages, toolLines int) *session.Session {
+	b.Helper()
+	tmp := b.TempDir()
+	jsonl := filepath.Join(tmp, "tool-heavy.jsonl")
+	var body strings.Builder
+	base := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+	toolBody := strings.Repeat("tool output ", 256)
+	for i := range messages + toolLines {
+		ts := base.Add(time.Duration(i) * time.Second).Format(time.RFC3339)
+		if i%10 == 0 {
+			body.WriteString(`{"type":"user","timestamp":"` + ts + `","message":{"role":"user","content":"message ` + itoa(i) + `"}}` + "\n")
+			continue
+		}
+		body.WriteString(`{"type":"tool_result","timestamp":"` + ts + `","content":"` + toolBody + itoa(i) + `"}` + "\n")
+	}
+	if err := os.WriteFile(jsonl, []byte(body.String()), 0o644); err != nil {
+		b.Fatalf("write: %v", err)
+	}
+	return &session.Session{
+		ID:        "bench-tool-heavy",
+		Source:    "claude",
+		JSONLPath: jsonl,
+		CWD:       tmp,
+		CWDExists: true,
+		LastTime:  base.Add(time.Duration(messages+toolLines-1) * time.Second),
 	}
 }
 

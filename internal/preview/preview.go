@@ -356,7 +356,7 @@ func loadMessages(path string, limit int) ([]session.Message, time.Time, int, er
 	)
 	for {
 		line, err := readJSONLLine(r, previewLineCap)
-		if line != "" {
+		if line != "" && mightBeMessage(line) {
 			if item, ts, ok := parseMessageLine(line); ok {
 				if startedAt.IsZero() && !ts.IsZero() {
 					startedAt = ts
@@ -392,6 +392,31 @@ func collectRing(ring []session.Message, total int) []session.Message {
 		out = append(out, ring[(start+i)%len(ring)])
 	}
 	return out
+}
+
+func mightBeMessage(line string) bool {
+	for offset := 0; ; {
+		i := strings.Index(line[offset:], `"type"`)
+		if i < 0 {
+			return false
+		}
+		i += offset + len(`"type"`)
+		for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+			i++
+		}
+		if i >= len(line) || line[i] != ':' {
+			offset = i
+			continue
+		}
+		i++
+		for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+			i++
+		}
+		if strings.HasPrefix(line[i:], `"user"`) || strings.HasPrefix(line[i:], `"assistant"`) {
+			return true
+		}
+		offset = i
+	}
 }
 
 type colors struct {
