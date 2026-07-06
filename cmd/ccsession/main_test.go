@@ -146,6 +146,12 @@ func TestParseGlobalFlags(t *testing.T) {
 			wantGF:   globalFlags{codex: true},
 			wantRest: []string{"list"},
 		},
+		{
+			name:     "pi sugar takes no value",
+			args:     []string{"--pi", "list"},
+			wantGF:   globalFlags{pi: true},
+			wantRest: []string{"list"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -173,26 +179,32 @@ func TestApplySource(t *testing.T) {
 		{name: "opencode sugar", gf: globalFlags{opencode: true}, wantEnv: "opencode"},
 		{name: "grok sugar", gf: globalFlags{grok: true}, wantEnv: "grok"},
 		{name: "codex sugar", gf: globalFlags{codex: true}, wantEnv: "codex"},
+		{name: "pi sugar", gf: globalFlags{pi: true}, wantEnv: "pi"},
 		{name: "source flag", gf: globalFlags{source: "opencode"}, wantEnv: "opencode"},
 		{name: "source flag all", gf: globalFlags{source: "all"}, wantEnv: "all"},
 		{name: "source flag grok", gf: globalFlags{source: "grok"}, wantEnv: "grok"},
 		{name: "source flag codex", gf: globalFlags{source: "codex"}, wantEnv: "codex"},
+		{name: "source flag pi", gf: globalFlags{source: "pi"}, wantEnv: "pi"},
 		{name: "all sugar agrees with source", gf: globalFlags{all: true, source: "all"}, wantEnv: "all"},
 		{name: "sugar agrees with source", gf: globalFlags{opencode: true, source: "opencode"}, wantEnv: "opencode"},
 		{name: "codex sugar agrees with source", gf: globalFlags{codex: true, source: "codex"}, wantEnv: "codex"},
+		{name: "pi sugar agrees with source", gf: globalFlags{pi: true, source: "pi"}, wantEnv: "pi"},
 		{name: "all sugar contradicts source", gf: globalFlags{all: true, source: "claude"}, wantErr: true},
 		{name: "all sugar conflicts with backend sugar", gf: globalFlags{all: true, codex: true}, wantErr: true},
 		{name: "sugar contradicts source", gf: globalFlags{opencode: true, source: "claude"}, wantErr: true},
 		{name: "grok sugar contradicts source", gf: globalFlags{grok: true, source: "opencode"}, wantErr: true},
 		{name: "codex sugar contradicts source", gf: globalFlags{codex: true, source: "grok"}, wantErr: true},
+		{name: "pi sugar contradicts source", gf: globalFlags{pi: true, source: "codex"}, wantErr: true},
 		{name: "backend sugars conflict", gf: globalFlags{opencode: true, grok: true}, wantErr: true},
 		{name: "codex backend sugar conflicts", gf: globalFlags{grok: true, codex: true}, wantErr: true},
+		{name: "pi backend sugar conflicts", gf: globalFlags{codex: true, pi: true}, wantErr: true},
 		{name: "unknown source flag", gf: globalFlags{source: "bogus"}, wantErr: true},
 		{name: "inherited env is validated", env: "bogus", wantErr: true},
 		{name: "inherited valid env survives", env: "opencode", wantEnv: "opencode"},
 		{name: "inherited all env survives", env: "all", wantEnv: "all"},
 		{name: "inherited grok env survives", env: "grok", wantEnv: "grok"},
 		{name: "inherited codex env survives", env: "codex", wantEnv: "codex"},
+		{name: "inherited pi env survives", env: "pi", wantEnv: "pi"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
