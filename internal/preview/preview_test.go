@@ -13,6 +13,7 @@ import (
 	"github.com/sorafujitani/ccsession/internal/ansi"
 	"github.com/sorafujitani/ccsession/internal/codex"
 	"github.com/sorafujitani/ccsession/internal/opencode"
+	"github.com/sorafujitani/ccsession/internal/pi"
 	"github.com/sorafujitani/ccsession/internal/session"
 	"github.com/sorafujitani/ccsession/internal/source"
 )
@@ -708,6 +709,44 @@ func TestCodexSourceRendersThroughMessageSeam(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "codex preview body") || !strings.Contains(out, "assistant reply") {
 		t.Fatalf("rendered preview missing Codex messages: %q", out)
+	}
+}
+
+func TestPiSourceRendersThroughMessageSeam(t *testing.T) {
+	dir := t.TempDir()
+	cwd := t.TempDir()
+	id := "019f3876-219b-7070-a3d0-ef577213d9ad"
+	sub := filepath.Join(dir, "--proj--")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := `{"type":"session","version":3,"id":"` + id + `","timestamp":"2026-07-06T00:00:00Z","cwd":"` + cwd + `"}` + "\n" +
+		`{"type":"message","id":"m1","parentId":null,"timestamp":"2026-07-06T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"pi preview body"}],"timestamp":1783358814215}}` + "\n" +
+		`{"type":"message","id":"m2","parentId":"m1","timestamp":"2026-07-06T00:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"assistant reply"}],"timestamp":1783358815000}}` + "\n"
+	if err := os.WriteFile(filepath.Join(sub, "2026-07-06T00-00-00-000Z_"+id+".jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv(pi.EnvSessionsDir, dir)
+	t.Setenv(source.EnvVar, "pi")
+
+	src, err := source.FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if _, ok := src.(messageSource); !ok {
+		t.Fatal("pi source no longer satisfies messageSource; preview would fall back to the Claude JSONL parser")
+	}
+	s, err := src.FindByID(id)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := renderFrom(src, s, &buf, Options{}); err != nil {
+		t.Fatalf("renderFrom: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "pi preview body") || !strings.Contains(out, "assistant reply") {
+		t.Fatalf("rendered preview missing pi messages: %q", out)
 	}
 }
 

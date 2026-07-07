@@ -1,6 +1,6 @@
 ---
 name: ccsession
-description: Recover, inspect, and hand off to local agent sessions with the ccsession CLI. Use when the user wants to find prior context, locate a historical Claude Code/OpenCode/Grok/Codex session, compare candidate sessions, preview a past conversation, or resume work that happened in another agent session.
+description: Recover, inspect, and hand off to local agent sessions with the ccsession CLI. Use when the user wants to find prior context, locate a historical Claude Code/OpenCode/Grok/Codex/Pi session, compare candidate sessions, preview a past conversation, or resume work that happened in another agent session.
 ---
 
 # ccsession

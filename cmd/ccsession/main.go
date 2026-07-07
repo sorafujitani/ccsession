@@ -77,13 +77,14 @@ USAGE:
   non-flag argument).
 
 GLOBAL FLAGS:
-  --source <s>        session backend: claude (default) | all | opencode | grok | codex. Inherited
+  --source <s>        session backend: claude (default) | all | opencode | grok | codex | pi. Inherited
                       by the picker's reload/preview/resume re-invocations via
                       CCSESSION_SOURCE.
   --all               shorthand for --source=all
   --opencode          shorthand for --source=opencode
   --grok              shorthand for --source=grok
   --codex             shorthand for --source=codex
+  --pi                shorthand for --source=pi
   --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive).
                       Applied to every list call, including grep/dir/fuzzy
                       reloads, so the matching directories never appear in
@@ -216,6 +217,7 @@ type globalFlags struct {
 	opencode   bool
 	grok       bool
 	codex      bool
+	pi         bool
 	binds      config.Keybindings
 }
 
@@ -249,6 +251,12 @@ func applySource(gf globalFlags) error {
 			return fmt.Errorf("--codex conflicts with --source=%s", name)
 		}
 		name = "codex"
+	}
+	if gf.pi {
+		if name != "" && name != "pi" {
+			return fmt.Errorf("--pi conflicts with --source=%s", name)
+		}
+		name = "pi"
 	}
 	if name == "" {
 		name = os.Getenv(source.EnvVar)
@@ -298,6 +306,12 @@ next:
 		// --codex is sugar for --source=codex and takes no value.
 		if a == "--codex" {
 			gf.codex = true
+			i++
+			continue next
+		}
+		// --pi is sugar for --source=pi and takes no value.
+		if a == "--pi" {
+			gf.pi = true
 			i++
 			continue next
 		}

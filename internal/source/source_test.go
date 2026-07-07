@@ -11,6 +11,7 @@ import (
 	"github.com/sorafujitani/ccsession/internal/codex"
 	"github.com/sorafujitani/ccsession/internal/grok"
 	"github.com/sorafujitani/ccsession/internal/opencode"
+	"github.com/sorafujitani/ccsession/internal/pi"
 	"github.com/sorafujitani/ccsession/internal/session"
 )
 
@@ -24,6 +25,7 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 	t.Setenv(opencode.EnvDBPath, db)
 	t.Setenv(grok.EnvHome, t.TempDir())
 	t.Setenv(codex.EnvHome, t.TempDir())
+	t.Setenv(pi.EnvSessionsDir, t.TempDir())
 
 	cases := []struct {
 		env      string
@@ -36,6 +38,7 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 		{"opencode", "opencode", false},
 		{"grok", "grok", false},
 		{"codex", "codex", false},
+		{"pi", "pi", false},
 		// An unknown value is an error, not a silent fall back to claude:
 		// a typo must surface, not quietly show the wrong agent's sessions.
 		{"clauded", "", true},
@@ -74,6 +77,35 @@ func TestCodex_ResumeSpec(t *testing.T) {
 		if args[i] != want[i] {
 			t.Errorf("args[%d] = %q, want %q", i, args[i], want[i])
 		}
+	}
+}
+
+func TestPi_ResumeSpec(t *testing.T) {
+	bin, args, err := piSource{}.ResumeSpec(&session.Session{ID: "abc123", JSONLPath: "/pi/sessions/s.jsonl"})
+	if err != nil {
+		t.Fatalf("ResumeSpec: %v", err)
+	}
+	if bin != "pi" {
+		t.Errorf("bin = %q, want pi", bin)
+	}
+	want := []string{"pi", "--session", "/pi/sessions/s.jsonl"}
+	if len(args) != len(want) {
+		t.Fatalf("args = %v, want %v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], want[i])
+		}
+	}
+}
+
+func TestPi_ResumeSpecFallsBackToIDWithoutPath(t *testing.T) {
+	_, args, err := piSource{}.ResumeSpec(&session.Session{ID: "abc123"})
+	if err != nil {
+		t.Fatalf("ResumeSpec: %v", err)
+	}
+	if len(args) != 3 || args[2] != "abc123" {
+		t.Fatalf("args = %v, want id fallback", args)
 	}
 }
 
@@ -208,6 +240,33 @@ func TestCodex_FindByIDStampsSource(t *testing.T) {
 	}
 	if s == nil || s.Source != "codex" {
 		t.Errorf("FindByID Source = %v, want codex", s)
+	}
+}
+
+func TestPi_ScanStampsSource(t *testing.T) {
+	dir, _ := fixturePiDir(t, "hello pi")
+	ss, err := (piSource{store: pi.OpenAt(dir)}).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) == 0 {
+		t.Fatal("Scan returned no sessions")
+	}
+	for _, s := range ss {
+		if s.Source != "pi" {
+			t.Errorf("session %s Source = %q, want pi", s.ID, s.Source)
+		}
+	}
+}
+
+func TestPi_FindByIDStampsSource(t *testing.T) {
+	dir, id := fixturePiDir(t, "hello pi")
+	s, err := (piSource{store: pi.OpenAt(dir)}).FindByID(id)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if s == nil || s.Source != "pi" {
+		t.Errorf("FindByID Source = %v, want pi", s)
 	}
 }
 
@@ -595,6 +654,23 @@ func fixtureCodexHome(t *testing.T, content string) (home, id string) {
 		t.Fatalf("write: %v", err)
 	}
 	return home, id
+}
+
+func fixturePiDir(t *testing.T, content string) (dir, id string) {
+	t.Helper()
+	dir = t.TempDir()
+	cwd := t.TempDir()
+	sub := filepath.Join(dir, "--proj--")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	id = "019f3876-219b-7070-a3d0-ef577213d9ad"
+	body := `{"type":"session","version":3,"id":"` + id + `","timestamp":"2026-07-06T00:00:00Z","cwd":"` + cwd + `"}` + "\n" +
+		`{"type":"message","id":"m1","parentId":null,"timestamp":"2026-07-06T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"` + content + `"}],"timestamp":1783358814215}}` + "\n"
+	if err := os.WriteFile(filepath.Join(sub, "2026-07-06T00-00-00-000Z_"+id+".jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	return dir, id
 }
 
 func BenchmarkAllSourceScan(b *testing.B) {

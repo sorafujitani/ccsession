@@ -11,6 +11,7 @@ import (
 
 	"github.com/sorafujitani/ccsession/internal/codex"
 	"github.com/sorafujitani/ccsession/internal/list"
+	"github.com/sorafujitani/ccsession/internal/pi"
 	"github.com/sorafujitani/ccsession/internal/source"
 )
 
@@ -130,6 +131,49 @@ func TestRunSpec_SourceAllKeepsCompositeIDAndLocator(t *testing.T) {
 	}
 }
 
+func TestRunSpec_PiResumesByJSONLPath(t *testing.T) {
+	home := t.TempDir()
+	piDir := t.TempDir()
+	cwd := t.TempDir()
+	id := "019f3876-219b-7070-a3d0-ef577213d9ad"
+	writeResumeSession(t, home, cwd, id)
+	path := writePiResumeSession(t, piDir, cwd, id)
+	t.Setenv("HOME", home)
+	t.Setenv(pi.EnvSessionsDir, piDir)
+	t.Setenv(source.EnvVar, "all")
+
+	var listBuf bytes.Buffer
+	if err := list.Run(list.Options{JSON: true, Out: &listBuf}); err != nil {
+		t.Fatalf("list.Run: %v", err)
+	}
+	var rows []list.JSONSession
+	if err := json.Unmarshal(listBuf.Bytes(), &rows); err != nil {
+		t.Fatalf("json.Unmarshal list: %v\n%s", err, listBuf.String())
+	}
+	var piRow list.JSONSession
+	for _, row := range rows {
+		if strings.HasPrefix(row.ID, "pi:") {
+			piRow = row
+			break
+		}
+	}
+	if piRow.ID == "" || !strings.HasPrefix(piRow.Locator, "pi:") {
+		t.Fatalf("missing composite pi row: %#v", rows)
+	}
+
+	var specBuf bytes.Buffer
+	if err := RunSpec(piRow.ID, Options{Locator: piRow.Locator, Out: &specBuf}); err != nil {
+		t.Fatalf("RunSpec: %v", err)
+	}
+	var spec Spec
+	if err := json.Unmarshal(specBuf.Bytes(), &spec); err != nil {
+		t.Fatalf("json.Unmarshal spec: %v\n%s", err, specBuf.String())
+	}
+	if spec.Bin != "pi" || len(spec.Args) != 3 || spec.Args[1] != "--session" || spec.Args[2] != path {
+		t.Errorf("resume target = %q %v, want pi --session %s", spec.Bin, spec.Args, path)
+	}
+}
+
 func writeResumeSession(t *testing.T, home, cwd, id string) string {
 	t.Helper()
 	dir := filepath.Join(home, ".claude", "projects", "-proj")
@@ -140,6 +184,20 @@ func writeResumeSession(t *testing.T, home, cwd, id string) string {
 	path := filepath.Join(dir, id+".jsonl")
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write session: %v", err)
+	}
+	return path
+}
+
+func writePiResumeSession(t *testing.T, dir, cwd, id string) string {
+	t.Helper()
+	body := `{"type":"session","version":3,"id":"` + id + `","timestamp":"2026-07-06T00:00:00Z","cwd":"` + cwd + `"}` + "\n" +
+		`{"type":"message","id":"m1","parentId":null,"timestamp":"2026-07-06T00:00:01Z","message":{"role":"user","content":"pi resume me","timestamp":1783358814215}}` + "\n"
+	path := filepath.Join(dir, "--proj--", "2026-07-06T00-00-00-000Z_"+id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir pi: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write pi session: %v", err)
 	}
 	return path
 }
