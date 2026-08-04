@@ -77,7 +77,7 @@ USAGE:
   non-flag argument).
 
 GLOBAL FLAGS:
-  --source <s>        session backend: claude (default) | all | opencode | grok | codex | pi. Inherited
+  --source <s>        session backend: claude (default) | all | opencode | grok | codex | pi | omp. Inherited
                       by the picker's reload/preview/resume re-invocations via
                       CCSESSION_SOURCE.
   --all               shorthand for --source=all
@@ -85,6 +85,7 @@ GLOBAL FLAGS:
   --grok              shorthand for --source=grok
   --codex             shorthand for --source=codex
   --pi                shorthand for --source=pi
+  --omp               shorthand for --source=omp
   --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive).
                       Applied to every list call, including grep/dir/fuzzy
                       reloads, so the matching directories never appear in
@@ -218,6 +219,7 @@ type globalFlags struct {
 	grok       bool
 	codex      bool
 	pi         bool
+	omp        bool
 	binds      config.Keybindings
 }
 
@@ -257,6 +259,12 @@ func applySource(gf globalFlags) error {
 			return fmt.Errorf("--pi conflicts with --source=%s", name)
 		}
 		name = "pi"
+	}
+	if gf.omp {
+		if name != "" && name != "omp" {
+			return fmt.Errorf("--omp conflicts with --source=%s", name)
+		}
+		name = "omp"
 	}
 	if name == "" {
 		name = os.Getenv(source.EnvVar)
@@ -312,6 +320,12 @@ next:
 		// --pi is sugar for --source=pi and takes no value.
 		if a == "--pi" {
 			gf.pi = true
+			i++
+			continue next
+		}
+		// --omp is sugar for --source=omp and takes no value.
+		if a == "--omp" {
+			gf.omp = true
 			i++
 			continue next
 		}

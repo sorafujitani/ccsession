@@ -5,7 +5,7 @@
 ![ccsession demo](./docs/assets/ccsession_demo.gif)
 
 `ccsession` lists local agent sessions (Claude Code by default, with optional
-OpenCode, Grok, Codex, and Pi backends), lets you fuzzy-find across all of your
+OpenCode, Grok, Codex, Pi, and Oh My Pi backends), lets you fuzzy-find across all of your
 projects with a live preview pane, and resumes the one you pick in its original
 working directory.
 
@@ -35,6 +35,7 @@ working directory.
 | `grok` (Grok Build TUI) | listing & resuming Grok sessions (only with `--source=grok`) |
 | `codex` (Codex CLI) | listing & resuming Codex sessions (only with `--source=codex`) |
 | [`pi`](https://pi.dev) (pi coding agent) | listing & resuming Pi sessions (only with `--source=pi`) |
+| [`omp`](https://omp.sh) (Oh My Pi) | listing & resuming Oh My Pi sessions (only with `--source=omp`) |
 
 `ccsession` depends on newer `fzf` actions such as `transform`, `rebind`,
 `unbind`, `disable-search`, and `change-nth`. The newest of those,
@@ -89,7 +90,7 @@ The formula lives in
 [`sorafujitani/homebrew-tap`](https://github.com/sorafujitani/homebrew-tap)
 and GoReleaser refreshes it on every tagged release. `fzf` is installed as a
 dependency; the `claude` CLI must be installed separately. `opencode`, `grok`,
-`codex`, and `pi` are needed only with their matching `--source` backends — they back
+`codex`, `pi`, and `omp` are needed only with their matching `--source` backends — they back
 optional features (unlike `fzf`, which is always required), so they are
 intentionally left out of the formula's `depends_on`.
 
@@ -100,6 +101,7 @@ ccsession                            # list -> fzf -> resume
 ccsession --grok                     # use Grok sessions from ~/.grok/sessions
 ccsession --codex                    # use Codex sessions from ~/.codex/sessions
 ccsession --pi                       # use Pi sessions from ~/.pi/agent/sessions
+ccsession --omp                      # use Oh My Pi sessions from ~/.omp/agent/sessions
 ccsession list  [--grep Q] [--regex] # emit TSV rows to stdout
 ccsession list --json --grep Q --limit 5 # emit structured rows for agents
 ccsession preview [--query Q] [--regex] <id> # render the preview pane (Q highlighted)
@@ -245,7 +247,7 @@ ccsession exits with an error instead of starting the picker.
 
 1. `ccsession list` reads the selected backend (`~/.claude/projects/*/` by
    default, or `--source=opencode` / `--source=grok` / `--source=codex` /
-   `--source=pi`) and prints one TSV row
+   `--source=pi` / `--source=omp`) and prints one TSV row
    per session (`id`, `locator`, `epoch`, relative time, cwd basename, label).
    `ccsession list --json --limit N` emits the same candidates as a JSON array
    for agent integrations.
@@ -261,10 +263,15 @@ ccsession exits with an error instead of starting the picker.
    so the resumed process fully replaces the picker.
 
 Backend-specific homes can be overridden with `GROK_HOME` for Grok,
-`CODEX_HOME` for Codex, and `PI_CODING_AGENT_SESSION_DIR` for Pi. Codex
+`CODEX_HOME` for Codex, `PI_CODING_AGENT_SESSION_DIR` for Pi, and
+`PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR` for Oh My Pi. Codex
 defaults to `~/.codex`, reading sessions from its `sessions` subdirectory; Pi
 reads sessions from `~/.pi/agent/sessions`, and `PI_CODING_AGENT_SESSION_DIR`
-points directly at that sessions directory.
+points directly at that sessions directory. Oh My Pi reads sessions recursively
+from `~/.omp/agent/sessions`; `PI_CODING_AGENT_DIR` overrides the agent root,
+while `PI_CONFIG_DIR` changes the config root under the user's home when the
+agent-root override is unset. ccsession reads the resulting `agent/sessions`
+subdirectory.
 
 ## Development
 

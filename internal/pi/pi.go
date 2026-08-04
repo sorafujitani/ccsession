@@ -33,12 +33,16 @@ type Store struct {
 }
 
 type entry struct {
-	Type      string          `json:"type"`
-	ID        string          `json:"id"`
-	Timestamp string          `json:"timestamp"`
-	CWD       string          `json:"cwd"`
-	Name      string          `json:"name"`
-	Message   json.RawMessage `json:"message"`
+	Type        string          `json:"type"`
+	ID          string          `json:"id"`
+	Timestamp   string          `json:"timestamp"`
+	CWD         string          `json:"cwd"`
+	Name        string          `json:"name"`
+	Title       string          `json:"title"`
+	Content     json.RawMessage `json:"content"`
+	Display     bool            `json:"display"`
+	Attribution string          `json:"attribution"`
+	Message     json.RawMessage `json:"message"`
 }
 
 type messagePayload struct {
@@ -236,12 +240,12 @@ func parseFile(path string, includeMessages bool, messageLimit int) (*session.Se
 		JSONLPath:  path,
 	}
 	var (
-		firstUser string
-		infoName  string
-		lastTS    time.Time
-		startedAt time.Time
-		msgs      []session.Message
-		total     int
+		firstUser     string
+		explicitLabel string
+		lastTS        time.Time
+		startedAt     time.Time
+		msgs          []session.Message
+		total         int
 	)
 	err = scanJSONLLines(f, func(line []byte) {
 		var e entry
@@ -266,9 +270,29 @@ func parseFile(path string, includeMessages bool, messageLimit int) (*session.Se
 		case "session_info":
 			// The latest entry always wins: pi treats an empty name as an
 			// explicit clear, reverting the label to the first user message.
-			infoName = e.Name
+			explicitLabel = e.Name
+		case "title", "title_change":
+			// Oh My Pi uses title events instead of session_info. Across all
+			// explicit label event types, the last entry wins; an empty title
+			// clears the label and falls back to the first user message.
+			explicitLabel = e.Title
 		case "message":
 			msg, ok := parseMessagePayload(e.Message, lineTS)
+			if !ok {
+				return
+			}
+			if startedAt.IsZero() && !msg.Timestamp.IsZero() {
+				startedAt = msg.Timestamp
+			}
+			if msg.Role == "user" && firstUser == "" {
+				firstUser = msg.Body
+			}
+			if includeMessages {
+				msgs = appendMessage(msgs, msg, total, messageLimit)
+			}
+			total++
+		case "custom_message":
+			msg, ok := parseCustomMessage(e, lineTS)
 			if !ok {
 				return
 			}
@@ -290,7 +314,7 @@ func parseFile(path string, includeMessages bool, messageLimit int) (*session.Se
 	if sess.ID == "" || idCorruptsRow(sess.ID) {
 		return nil, nil, time.Time{}, 0, nil
 	}
-	label := session.SanitizeLabel(infoName)
+	label := session.SanitizeLabel(explicitLabel)
 	if label == "" {
 		label = session.SanitizeLabel(firstUser)
 	}
@@ -332,6 +356,17 @@ func parseMessagePayload(raw json.RawMessage, ts time.Time) (session.Message, bo
 	return session.Message{Role: p.Role, Timestamp: ts, Body: body}, true
 }
 
+func parseCustomMessage(e entry, ts time.Time) (session.Message, bool) {
+	if !e.Display || e.Attribution != "user" {
+		return session.Message{}, false
+	}
+	body := strings.TrimSpace(session.ExtractText(e.Content, "\n"))
+	if body == "" {
+		return session.Message{}, false
+	}
+	return session.Message{Role: "user", Timestamp: ts, Body: body}, true
+}
+
 func fileMessagesMatch(path string, match func(string) bool) (bool, error) {
 	return grep.FileContains(path, match, fileMessageTexts)
 }
@@ -345,10 +380,19 @@ func fileMessageTexts(path string) ([]string, error) {
 	var texts []string
 	err = scanJSONLLines(f, func(line []byte) {
 		var e entry
-		if err := json.Unmarshal(line, &e); err != nil || e.Type != "message" {
+		if err := json.Unmarshal(line, &e); err != nil {
 			return
 		}
-		msg, ok := parseMessagePayload(e.Message, time.Time{})
+		var (
+			msg session.Message
+			ok  bool
+		)
+		switch e.Type {
+		case "message":
+			msg, ok = parseMessagePayload(e.Message, time.Time{})
+		case "custom_message":
+			msg, ok = parseCustomMessage(e, time.Time{})
+		}
 		if ok {
 			texts = append(texts, msg.Body)
 		}

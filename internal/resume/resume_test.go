@@ -11,6 +11,7 @@ import (
 
 	"github.com/sorafujitani/ccsession/internal/codex"
 	"github.com/sorafujitani/ccsession/internal/list"
+	"github.com/sorafujitani/ccsession/internal/omp"
 	"github.com/sorafujitani/ccsession/internal/pi"
 	"github.com/sorafujitani/ccsession/internal/source"
 )
@@ -174,6 +175,48 @@ func TestRunSpec_PiResumesByJSONLPath(t *testing.T) {
 	}
 }
 
+func TestRunSpec_OMPResumesByJSONLPath(t *testing.T) {
+	home := t.TempDir()
+	agentRoot := t.TempDir()
+	cwd := t.TempDir()
+	id := "55555555-5555-5555-5555-555555555555"
+	path := writeOMPResumeSession(t, agentRoot, cwd, id)
+	t.Setenv("HOME", home)
+	t.Setenv(omp.EnvAgentDir, agentRoot)
+	t.Setenv(source.EnvVar, "all")
+
+	var listBuf bytes.Buffer
+	if err := list.Run(list.Options{JSON: true, Out: &listBuf}); err != nil {
+		t.Fatalf("list.Run: %v", err)
+	}
+	var rows []list.JSONSession
+	if err := json.Unmarshal(listBuf.Bytes(), &rows); err != nil {
+		t.Fatalf("json.Unmarshal list: %v\n%s", err, listBuf.String())
+	}
+	var ompRow list.JSONSession
+	for _, row := range rows {
+		if strings.HasPrefix(row.ID, "omp:") {
+			ompRow = row
+			break
+		}
+	}
+	if ompRow.ID == "" || !strings.HasPrefix(ompRow.Locator, "omp:") {
+		t.Fatalf("missing composite omp row: %#v", rows)
+	}
+
+	var specBuf bytes.Buffer
+	if err := RunSpec(ompRow.ID, Options{Locator: ompRow.Locator, Out: &specBuf}); err != nil {
+		t.Fatalf("RunSpec: %v", err)
+	}
+	var spec Spec
+	if err := json.Unmarshal(specBuf.Bytes(), &spec); err != nil {
+		t.Fatalf("json.Unmarshal spec: %v\n%s", err, specBuf.String())
+	}
+	if spec.Bin != "omp" || len(spec.Args) != 3 || spec.Args[1] != "--resume" || spec.Args[2] != path {
+		t.Errorf("resume target = %q %v, want omp --resume %s", spec.Bin, spec.Args, path)
+	}
+}
+
 func writeResumeSession(t *testing.T, home, cwd, id string) string {
 	t.Helper()
 	dir := filepath.Join(home, ".claude", "projects", "-proj")
@@ -198,6 +241,21 @@ func writePiResumeSession(t *testing.T, dir, cwd, id string) string {
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write pi session: %v", err)
+	}
+	return path
+}
+
+func writeOMPResumeSession(t *testing.T, agentRoot, cwd, id string) string {
+	t.Helper()
+	body := `{"type":"title","v":1,"title":"omp resume session","source":"auto","updatedAt":"2026-08-04T00:00:01Z"}` + "\n" +
+		`{"type":"session","version":3,"id":"` + id + `","timestamp":"2026-08-04T00:00:00Z","cwd":"` + cwd + `"}` + "\n" +
+		`{"type":"message","id":"m1","timestamp":"2026-08-04T00:00:02Z","message":{"role":"user","content":"omp resume me","timestamp":1785801602000}}` + "\n"
+	path := filepath.Join(agentRoot, "sessions", "project", "tasks", id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir omp: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write omp session: %v", err)
 	}
 	return path
 }

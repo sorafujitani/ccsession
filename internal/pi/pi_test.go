@@ -78,6 +78,125 @@ func TestSessionInfoNameClearedRevertsToFirstUser(t *testing.T) {
 	}
 }
 
+func TestTitleOverridesFirstUser(t *testing.T) {
+	dir := t.TempDir()
+	cwd := t.TempDir()
+	id := "019f3876-219b-7070-a3d0-ef577213d9ad"
+	body := `{"type":"title","v":1,"title":"omp title","source":"auto","updatedAt":"2026-07-06T00:00:01Z"}` + "\n" +
+		header(id, cwd, "2026-07-06T00:00:00.000Z") +
+		userLine("2026-07-06T00:00:02Z", "first user prompt")
+	writeSession(t, dir, id, body)
+
+	ss, err := OpenAt(dir).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 1 || ss[0].Label != "omp title" {
+		t.Fatalf("Label = %#v, want title", ss)
+	}
+}
+
+func TestOMPTitleMetadataUsesLatestTitleChange(t *testing.T) {
+	dir := t.TempDir()
+	cwd := t.TempDir()
+	id := "019f3876-219b-7070-a3d0-ef577213d9ad"
+	body := `{"type":"title","v":1,"title":"cached title","source":"auto","updatedAt":"2026-07-06T00:00:01Z"}` + "\n" +
+		header(id, cwd, "2026-07-06T00:00:00.000Z") +
+		userLine("2026-07-06T00:00:02Z", "first user prompt") +
+		`{"type":"title_change","id":"cc","timestamp":"2026-07-06T00:00:04Z","title":"renamed omp session"}` + "\n"
+	writeSession(t, dir, id, body)
+
+	ss, err := OpenAt(dir).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 1 || ss[0].Label != "renamed omp session" {
+		t.Fatalf("Label = %#v, want latest explicit label", ss)
+	}
+}
+
+func TestEmptyTitleChangeRevertsToFirstUser(t *testing.T) {
+	dir := t.TempDir()
+	cwd := t.TempDir()
+	id := "019f3876-219b-7070-a3d0-ef577213d9ad"
+	body := `{"type":"title","v":1,"title":"initial title","source":"auto","updatedAt":"2026-07-06T00:00:01Z"}` + "\n" +
+		header(id, cwd, "2026-07-06T00:00:00.000Z") +
+		userLine("2026-07-06T00:00:02Z", "first user prompt") +
+		`{"type":"title_change","id":"bb","timestamp":"2026-07-06T00:00:03Z","title":""}` + "\n"
+	writeSession(t, dir, id, body)
+
+	ss, err := OpenAt(dir).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 1 || ss[0].Label != "first user prompt" {
+		t.Fatalf("Label = %#v, want first user prompt after cleared title", ss)
+	}
+}
+
+func TestDisplayedUserCustomMessageIsSearchableAndMakesSessionUsable(t *testing.T) {
+	dir := t.TempDir()
+	cwd := t.TempDir()
+	id := "019f3876-219b-7070-a3d0-ef577213d9ad"
+	body := `{"type":"title","v":1,"title":"","source":"auto","updatedAt":"2026-07-06T00:00:00Z"}` + "\n" +
+		header(id, cwd, "2026-07-06T00:00:00.000Z") +
+		`{"type":"custom_message","timestamp":"2026-07-06T00:00:01Z","content":"unique task prompt","display":true,"attribution":"user"}` + "\n" +
+		`{"type":"message","timestamp":"2026-07-06T00:00:02Z","message":{"role":"assistant","content":"assistant answer"}}` + "\n"
+	writeSession(t, dir, id, body)
+	store := OpenAt(dir)
+
+	ss, err := store.Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 1 || ss[0].Label != "unique task prompt" {
+		t.Fatalf("sessions = %#v, want custom user message label", ss)
+	}
+	msgs, _, total, err := store.Messages(id, 30)
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if total != 2 || len(msgs) != 2 || msgs[0].Role != "user" || msgs[0].Body != "unique task prompt" {
+		t.Fatalf("messages = %#v total=%d, want displayed custom user message", msgs, total)
+	}
+	keys, err := store.GrepKeys("unique task prompt", false)
+	if err != nil {
+		t.Fatalf("GrepKeys: %v", err)
+	}
+	if _, ok := keys[id]; !ok {
+		t.Fatalf("GrepKeys = %#v, want %s", keys, id)
+	}
+}
+
+func TestHiddenAndAgentCustomMessagesAreIgnored(t *testing.T) {
+	dir := t.TempDir()
+	cwd := t.TempDir()
+	id := "019f3876-219b-7070-a3d0-ef577213d9ad"
+	body := header(id, cwd, "2026-07-06T00:00:00.000Z") +
+		`{"type":"custom_message","content":"hidden needle","display":false,"attribution":"user"}` + "\n" +
+		`{"type":"custom_message","content":"agent needle","display":true,"attribution":"agent"}` + "\n" +
+		userLine("2026-07-06T00:00:01Z", "visible prompt")
+	writeSession(t, dir, id, body)
+	store := OpenAt(dir)
+
+	ss, err := store.Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 1 || ss[0].Label != "visible prompt" {
+		t.Fatalf("sessions = %#v, want visible user prompt", ss)
+	}
+	for _, query := range []string{"hidden needle", "agent needle"} {
+		keys, err := store.GrepKeys(query, false)
+		if err != nil {
+			t.Fatalf("GrepKeys(%q): %v", query, err)
+		}
+		if len(keys) != 0 {
+			t.Fatalf("GrepKeys(%q) = %#v, want no match", query, keys)
+		}
+	}
+}
+
 func TestUserStringContentAndBlockContent(t *testing.T) {
 	dir := t.TempDir()
 	cwd := t.TempDir()
