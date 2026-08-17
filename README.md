@@ -105,6 +105,8 @@ ccsession preview --json <id>        # emit structured preview data for scripts/
 ccsession preview --no-color <id>    # force plain preview output
 ccsession resume-spec <id>           # print the resume target without launching it
 ccsession resume  <id>               # chdir to the session's cwd, exec the selected agent
+ccsession last [-n]                  # resume the most recent session
+ccsession last [--here] [--exclude-dir <s>] # scope to current dir, exclude paths
 ccsession --version
 ccsession --help
 ```
