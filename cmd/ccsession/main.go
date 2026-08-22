@@ -77,7 +77,7 @@ USAGE:
   non-flag argument).
 
 GLOBAL FLAGS:
-  --source <s>        session backend: claude (default) | all | opencode | grok | codex | pi | omp. Inherited
+  --source <s>        session backend: claude (default) | all | opencode | grok | codex | pi | omp | cortex. Inherited
                       by the picker's reload/preview/resume re-invocations via
                       CCSESSION_SOURCE.
   --all               shorthand for --source=all
@@ -86,6 +86,7 @@ GLOBAL FLAGS:
   --codex             shorthand for --source=codex
   --pi                shorthand for --source=pi
   --omp               shorthand for --source=omp
+  --cortex            shorthand for --source=cortex
   --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive).
                       Applied to every list call, including grep/dir/fuzzy
                       reloads, so the matching directories never appear in
@@ -212,15 +213,16 @@ func main() {
 }
 
 type globalFlags struct {
-	excludeDir string
-	source     string
-	all        bool
-	opencode   bool
-	grok       bool
-	codex      bool
-	pi         bool
-	omp        bool
-	binds      config.Keybindings
+  excludeDir string
+  source     string
+  all        bool
+  opencode   bool
+  grok       bool
+  codex      bool
+  pi         bool
+  omp        bool
+  cortex     bool
+  binds      config.Keybindings
 }
 
 // applySource folds backend shorthands / --source into the CCSESSION_SOURCE env var so
@@ -260,12 +262,18 @@ func applySource(gf globalFlags) error {
 		}
 		name = "pi"
 	}
-	if gf.omp {
-		if name != "" && name != "omp" {
-			return fmt.Errorf("--omp conflicts with --source=%s", name)
-		}
-		name = "omp"
-	}
+  if gf.omp {
+    if name != "" && name != "omp" {
+      return fmt.Errorf("--omp conflicts with --source=%s", name)
+    }
+    name = "omp"
+  }
+  if gf.cortex {
+    if name != "" && name != "cortex" {
+      return fmt.Errorf("--cortex conflicts with --source=%s", name)
+    }
+    name = "cortex"
+  }
 	if name == "" {
 		name = os.Getenv(source.EnvVar)
 	}
@@ -323,12 +331,18 @@ next:
 			i++
 			continue next
 		}
-		// --omp is sugar for --source=omp and takes no value.
-		if a == "--omp" {
-			gf.omp = true
-			i++
-			continue next
-		}
+    // --omp is sugar for --source=omp and takes no value.
+    if a == "--omp" {
+      gf.omp = true
+      i++
+      continue next
+    }
+    // --cortex is sugar for --source=cortex and takes no value.
+    if a == "--cortex" {
+      gf.cortex = true
+      i++
+      continue next
+    }
 		for name, p := range dst {
 			if a == name {
 				if i+1 >= len(args) {

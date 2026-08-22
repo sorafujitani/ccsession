@@ -30,9 +30,12 @@ type Session struct {
 	// directory-name fallback could not be reconciled with the filesystem.
 	// Callers (resume) refuse to act on these sessions.
 	CWDUnknown bool
-	// Source is the backend that produced this session ("claude"), stamped by
-	// the source package; the session package itself leaves it empty.
-	Source string
+  // Source is the backend that produced this session ("claude"), stamped by
+  // the source package; the session package itself leaves it empty.
+  Source string
+  // ConnectionName is the Snowflake connection used when the session was
+  // created (Cortex Code only). Used by resume to pass -c to cortex CLI.
+  ConnectionName string
 }
 
 // Message is one rendered transcript turn, the unit the preview pane displays.
