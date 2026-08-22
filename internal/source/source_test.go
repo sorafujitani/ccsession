@@ -4,12 +4,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sorafujitani/ccsession/internal/codex"
 	"github.com/sorafujitani/ccsession/internal/grok"
+	"github.com/sorafujitani/ccsession/internal/omp"
 	"github.com/sorafujitani/ccsession/internal/opencode"
 	"github.com/sorafujitani/ccsession/internal/pi"
 	"github.com/sorafujitani/ccsession/internal/session"
@@ -26,6 +28,7 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 	t.Setenv(grok.EnvHome, t.TempDir())
 	t.Setenv(codex.EnvHome, t.TempDir())
 	t.Setenv(pi.EnvSessionsDir, t.TempDir())
+	t.Setenv(omp.EnvAgentDir, t.TempDir())
 
 	cases := []struct {
 		env      string
@@ -39,6 +42,7 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 		{"grok", "grok", false},
 		{"codex", "codex", false},
 		{"pi", "pi", false},
+		{"omp", "omp", false},
 		// An unknown value is an error, not a silent fall back to claude:
 		// a typo must surface, not quietly show the wrong agent's sessions.
 		{"clauded", "", true},
@@ -101,6 +105,27 @@ func TestPi_ResumeSpec(t *testing.T) {
 
 func TestPi_ResumeSpecFallsBackToIDWithoutPath(t *testing.T) {
 	_, args, err := piSource{}.ResumeSpec(&session.Session{ID: "abc123"})
+	if err != nil {
+		t.Fatalf("ResumeSpec: %v", err)
+	}
+	if len(args) != 3 || args[2] != "abc123" {
+		t.Fatalf("args = %v, want id fallback", args)
+	}
+}
+
+func TestOMP_ResumeSpec(t *testing.T) {
+	bin, args, err := ompSource{}.ResumeSpec(&session.Session{ID: "abc123", JSONLPath: "/omp/agent/sessions/s.jsonl"})
+	if err != nil {
+		t.Fatalf("ResumeSpec: %v", err)
+	}
+	want := []string{"omp", "--resume", "/omp/agent/sessions/s.jsonl"}
+	if bin != "omp" || !slices.Equal(args, want) {
+		t.Fatalf("ResumeSpec = %q %v, want %q %v", bin, args, "omp", want)
+	}
+}
+
+func TestOMP_ResumeSpecFallsBackToIDWithoutPath(t *testing.T) {
+	_, args, err := ompSource{}.ResumeSpec(&session.Session{ID: "abc123"})
 	if err != nil {
 		t.Fatalf("ResumeSpec: %v", err)
 	}
@@ -267,6 +292,26 @@ func TestPi_FindByIDStampsSource(t *testing.T) {
 	}
 	if s == nil || s.Source != "pi" {
 		t.Errorf("FindByID Source = %v, want pi", s)
+	}
+}
+
+func TestOMP_ScanAndFindByIDStampSource(t *testing.T) {
+	dir, id := fixturePiDir(t, "hello omp")
+	src := ompSource{store: omp.OpenAt(dir)}
+
+	ss, err := src.Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(ss) != 1 || ss[0].Source != "omp" {
+		t.Fatalf("Scan = %#v, want omp source stamp", ss)
+	}
+	found, err := src.FindByID(id)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if found.Source != "omp" {
+		t.Fatalf("FindByID Source = %q, want omp", found.Source)
 	}
 }
 
