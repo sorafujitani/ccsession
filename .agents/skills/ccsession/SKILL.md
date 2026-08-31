@@ -1,6 +1,6 @@
 ---
 name: ccsession
-description: Recover, inspect, and hand off to local agent sessions with the ccsession CLI. Use when the user wants to find prior context, locate a historical Claude Code/OpenCode/Grok/Codex/Pi/Oh My Pi session, compare candidate sessions, preview a past conversation, or resume work that happened in another agent session.
+description: Recover, inspect, and hand off to local agent sessions with the ccsession CLI. Use when the user wants to find prior context, locate a historical Claude Code/OpenCode/Grok/Codex/Pi/Oh My Pi/Kiro CLI session, compare candidate sessions, preview a past conversation, or resume work that happened in another agent session.
 ---
 
 # ccsession
@@ -31,6 +31,7 @@ Do not duplicate ccsession's search, preview, or resume logic. Drive the CLI, su
    ```sh
    ccsession --codex list --json --grep "<query>" --limit 5
    ccsession --omp list --json --grep "<query>" --limit 5
+   ccsession --kiro list --json --grep "<query>" --limit 5
    ccsession --source all list --json --grep "<query>" --limit 5
    ```
 

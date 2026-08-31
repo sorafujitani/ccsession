@@ -77,7 +77,7 @@ USAGE:
   non-flag argument).
 
 GLOBAL FLAGS:
-  --source <s>        session backend: claude (default) | all | opencode | grok | codex | pi | omp. Inherited
+  --source <s>        session backend: claude (default) | all | opencode | grok | codex | pi | omp | kiro. Inherited
                       by the picker's reload/preview/resume re-invocations via
                       CCSESSION_SOURCE.
   --all               shorthand for --source=all
@@ -86,6 +86,7 @@ GLOBAL FLAGS:
   --codex             shorthand for --source=codex
   --pi                shorthand for --source=pi
   --omp               shorthand for --source=omp
+  --kiro              shorthand for --source=kiro
   --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive).
                       Applied to every list call, including grep/dir/fuzzy
                       reloads, so the matching directories never appear in
@@ -220,6 +221,7 @@ type globalFlags struct {
 	codex      bool
 	pi         bool
 	omp        bool
+	kiro       bool
 	binds      config.Keybindings
 }
 
@@ -265,6 +267,12 @@ func applySource(gf globalFlags) error {
 			return fmt.Errorf("--omp conflicts with --source=%s", name)
 		}
 		name = "omp"
+	}
+	if gf.kiro {
+		if name != "" && name != "kiro" {
+			return fmt.Errorf("--kiro conflicts with --source=%s", name)
+		}
+		name = "kiro"
 	}
 	if name == "" {
 		name = os.Getenv(source.EnvVar)
@@ -326,6 +334,12 @@ next:
 		// --omp is sugar for --source=omp and takes no value.
 		if a == "--omp" {
 			gf.omp = true
+			i++
+			continue next
+		}
+		// --kiro is sugar for --source=kiro and takes no value.
+		if a == "--kiro" {
+			gf.kiro = true
 			i++
 			continue next
 		}
