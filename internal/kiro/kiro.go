@@ -77,6 +77,12 @@ type v3Entry struct {
 	} `json:"payload"`
 }
 
+type sessionCandidate struct {
+	sess         *session.Session
+	hasWorkspace bool
+	activityMS   int64
+}
+
 type classicConversation struct {
 	History []classicTurn `json:"history"`
 }
@@ -287,29 +293,31 @@ func (s *Store) representativeSessions() ([]*session.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	files := filescan.Parallel(metadataPaths, func(path string) (*session.Session, bool) {
-		var (
-			sess *session.Session
-			err  error
-		)
+	files := filescan.Parallel(metadataPaths, func(path string) (sessionCandidate, bool) {
 		if filepath.Base(path) == "session.json" {
-			sess, err = s.readV3Metadata(path)
-		} else {
-			sess, err = s.readV2Metadata(path)
+			candidate, err := s.readV3Candidate(path)
+			return candidate, err == nil && candidate.sess != nil
 		}
-		return sess, err == nil && sess != nil
+		sess, err := s.readV2Metadata(path)
+		return sessionCandidate{sess: sess}, err == nil && sess != nil
 	})
-	byID := make(map[string]*session.Session, len(classic)+len(files))
-	for _, sess := range append(classic, files...) {
-		current := byID[sess.ID]
-		if current == nil || sess.LastEpoch > current.LastEpoch ||
-			(sess.LastEpoch == current.LastEpoch && isClassicPath(current.JSONLPath) && !isClassicPath(sess.JSONLPath)) {
-			byID[sess.ID] = sess
+	byID := make(map[string]sessionCandidate, len(classic)+len(files))
+	for _, sess := range classic {
+		candidate := sessionCandidate{sess: sess}
+		current, ok := byID[sess.ID]
+		if !ok || preferCandidate(candidate, current) {
+			byID[sess.ID] = candidate
+		}
+	}
+	for _, candidate := range files {
+		current, ok := byID[candidate.sess.ID]
+		if !ok || preferCandidate(candidate, current) {
+			byID[candidate.sess.ID] = candidate
 		}
 	}
 	out := make([]*session.Session, 0, len(byID))
-	for _, sess := range byID {
-		out = append(out, sess)
+	for _, candidate := range byID {
+		out = append(out, candidate.sess)
 	}
 	return out, nil
 }
@@ -323,10 +331,7 @@ func (s *Store) metadataPaths() ([]string, error) {
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
-			path := filepath.Join(v2Root, entry.Name())
-			if fileExists(strings.TrimSuffix(path, ".json") + ".jsonl") {
-				paths = append(paths, path)
-			}
+			paths = append(paths, filepath.Join(v2Root, entry.Name()))
 		}
 	}
 	v3Root := filepath.Join(s.home, "sessions")
@@ -341,6 +346,9 @@ func (s *Store) metadataPaths() ([]string, error) {
 		bucketDir := filepath.Join(v3Root, bucket.Name())
 		entries, err := os.ReadDir(bucketDir)
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
 			return nil, err
 		}
 		for _, entry := range entries {
@@ -348,7 +356,7 @@ func (s *Store) metadataPaths() ([]string, error) {
 				continue
 			}
 			dir := filepath.Join(bucketDir, entry.Name())
-			if fileExists(filepath.Join(dir, "session.json")) && fileExists(filepath.Join(dir, "messages.jsonl")) {
+			if fileExists(filepath.Join(dir, "session.json")) {
 				paths = append(paths, filepath.Join(dir, "session.json"))
 			}
 		}
@@ -374,17 +382,30 @@ func (s *Store) readV2Metadata(path string) (*session.Session, error) {
 }
 
 func (s *Store) readV3Metadata(path string) (*session.Session, error) {
+	candidate, err := s.readV3Candidate(path)
+	return candidate.sess, err
+}
+
+func (s *Store) readV3Candidate(path string) (sessionCandidate, error) {
 	var meta v3Metadata
 	if err := readJSON(path, &meta); err != nil {
-		return nil, err
+		return sessionCandidate{}, err
 	}
-	cwd := firstString(meta.WorkspacePaths, meta.RootPaths)
+	workspace := firstString(meta.WorkspacePaths)
+	cwd := workspace
+	if cwd == "" {
+		cwd = firstString(meta.RootPaths)
+	}
 	last := firstTime(meta.LastModifiedAt, meta.CreatedAt)
 	if last.IsZero() {
 		last = fileModTime(path)
 	}
-	return newSession(meta.ID, cwd, meta.Title, last, filepath.Dir(path),
-		filepath.Join(filepath.Dir(path), "messages.jsonl")), nil
+	dir := filepath.Dir(path)
+	return sessionCandidate{
+		sess:         newSession(meta.ID, cwd, meta.Title, last, dir, filepath.Join(dir, "messages.jsonl")),
+		hasWorkspace: workspace != "",
+		activityMS:   v3ActivityMS(dir, meta),
+	}, nil
 }
 
 func (s *Store) classicSessions() ([]*session.Session, error) {
@@ -555,7 +576,7 @@ func readFileMessages(path string, limit int) ([]session.Message, time.Time, int
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, time.Time{}, 0, session.ErrSessionFileMissing
+			return nil, time.Time{}, 0, nil
 		}
 		return nil, time.Time{}, 0, err
 	}
@@ -650,7 +671,11 @@ func textMessage(role, body string, timestamp time.Time) (session.Message, bool)
 }
 
 func fileMessagesMatch(path string, match func(string) bool) (bool, error) {
-	return grep.FileContains(path, match, messageTexts)
+	ok, err := grep.FileContains(path, match, messageTexts)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return ok, err
 }
 
 func appendMessage(messages []session.Message, message session.Message, total, limit int) []session.Message {
@@ -792,12 +817,51 @@ func firstTime(values ...string) time.Time {
 func firstString(groups ...[]string) string {
 	for _, group := range groups {
 		for _, value := range group {
-			if value != "" {
+			if strings.TrimSpace(value) != "" {
 				return value
 			}
 		}
 	}
 	return ""
+}
+
+func v3ActivityMS(dir string, meta v3Metadata) int64 {
+	var activity int64
+	for _, value := range []string{meta.LastModifiedAt, meta.CreatedAt} {
+		if parsed := timefmt.Parse(value); !parsed.IsZero() {
+			activity = max(activity, parsed.UnixMilli())
+		}
+	}
+	for _, name := range []string{"session.json", "messages.jsonl"} {
+		if info, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			activity = max(activity, info.ModTime().UnixMilli())
+		}
+	}
+	return activity
+}
+
+func preferCandidate(candidate, current sessionCandidate) bool {
+	if IsV3Path(candidate.sess.JSONLPath) && IsV3Path(current.sess.JSONLPath) {
+		if candidate.hasWorkspace != current.hasWorkspace {
+			return candidate.hasWorkspace
+		}
+		if candidate.activityMS != current.activityMS {
+			return candidate.activityMS > current.activityMS
+		}
+		return v3PathLess(candidate.sess.ProjectDir, current.sess.ProjectDir)
+	}
+	return candidate.sess.LastEpoch > current.sess.LastEpoch ||
+		(candidate.sess.LastEpoch == current.sess.LastEpoch &&
+			isClassicPath(current.sess.JSONLPath) && !isClassicPath(candidate.sess.JSONLPath))
+}
+
+func v3PathLess(candidate, current string) bool {
+	candidateBucket := filepath.Base(filepath.Dir(candidate))
+	currentBucket := filepath.Base(filepath.Dir(current))
+	if (candidateBucket == "_global") != (currentBucket == "_global") {
+		return candidateBucket == "_global"
+	}
+	return candidate < current
 }
 
 func msToTime(ms int64) time.Time {

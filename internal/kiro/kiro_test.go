@@ -158,6 +158,132 @@ func TestDuplicateClassicIDTieUsesSortedCWD(t *testing.T) {
 	}
 }
 
+func TestMetadataOnlySessions(t *testing.T) {
+	t.Setenv(grep.EnvCacheDir, t.TempDir())
+	f := newFixture(t)
+	v2ID := f.v2("v2-empty", "V2 empty title", "prompt", "answer", "2026-06-02T00:00:00Z")
+	v3ID := f.v3("v3-empty", "V3 empty title", "prompt", "answer", "2026-06-03T00:00:00Z", false)
+	paths := map[string]string{
+		v2ID: filepath.Join(f.home, "sessions", "cli", v2ID+".jsonl"),
+		v3ID: filepath.Join(f.home, "sessions", "_global", "sess_"+v3ID, "messages.jsonl"),
+	}
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	store := OpenAt(f.home)
+	sessions, err := store.Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	got := sessionsByID(sessions)
+	for id, path := range paths {
+		sess := got[id]
+		if sess == nil {
+			t.Errorf("Scan missing metadata-only session %s", id)
+			continue
+		}
+		found, err := store.FindByLocator(id, path)
+		if err != nil || found.JSONLPath != path {
+			t.Errorf("FindByLocator(%s) = %+v, err=%v", id, found, err)
+		}
+		messages, startedAt, total, err := store.Messages(id, 10)
+		if err != nil || len(messages) != 0 || !startedAt.IsZero() || total != 0 {
+			t.Errorf("Messages(%s) = %#v, %v, %d, err=%v", id, messages, startedAt, total, err)
+		}
+	}
+
+	keys, err := store.GrepKeys("V3 empty title", false)
+	if err != nil {
+		t.Fatalf("GrepKeys title: %v", err)
+	}
+	if _, ok := keys[v3ID]; !ok {
+		t.Errorf("GrepKeys title missing %s", v3ID)
+	}
+	keys, err = store.GrepKeys("missing transcript text", false)
+	if err != nil || len(keys) != 0 {
+		t.Errorf("GrepKeys body = %#v, err=%v", keys, err)
+	}
+}
+
+func TestDuplicateV3PrefersWorkspaceCopy(t *testing.T) {
+	f := newFixture(t)
+	id := f.v3("duplicate-id", "Newer global", "prompt", "answer", "2026-06-04T00:00:00Z", false)
+	f.v3InBucket("11fe14a563f7aed6", id, "Checkout workspace",
+		"prompt", "answer", "2026-06-03T00:00:00Z", true)
+	wantPath := filepath.Join(f.home, "sessions", "11fe14a563f7aed6", "sess_"+id, "messages.jsonl")
+
+	sessions, err := OpenAt(f.home).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].Label != "Checkout workspace" ||
+		sessions[0].CWD != f.cwd || sessions[0].JSONLPath != wantPath {
+		t.Fatalf("sessions = %#v, want checkout workspace copy", sessions)
+	}
+}
+
+func TestDuplicateV3UsesTranscriptActivity(t *testing.T) {
+	f := newFixture(t)
+	id := f.v3("duplicate-id", "Older transcript", "prompt", "answer", "2026-06-03T00:00:00Z", true)
+	const bucket = "ffffffffffffffff"
+	f.v3InBucket(bucket, id, "Newer transcript",
+		"prompt", "answer", "2026-06-03T00:00:00Z", true)
+	oldTime := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
+	newTime := oldTime.Add(time.Hour)
+	globalDir := filepath.Join(f.home, "sessions", "_global", "sess_"+id)
+	checkoutDir := filepath.Join(f.home, "sessions", bucket, "sess_"+id)
+	for _, path := range []string{
+		filepath.Join(globalDir, "session.json"),
+		filepath.Join(globalDir, "messages.jsonl"),
+		filepath.Join(checkoutDir, "session.json"),
+	} {
+		if err := os.Chtimes(path, oldTime, oldTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(filepath.Join(checkoutDir, "messages.jsonl"), newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := OpenAt(f.home).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	wantPath := filepath.Join(checkoutDir, "messages.jsonl")
+	if len(sessions) != 1 || sessions[0].Label != "Newer transcript" ||
+		sessions[0].JSONLPath != wantPath {
+		t.Fatalf("sessions = %#v, want copy with newer transcript", sessions)
+	}
+}
+
+func TestDuplicateV3TieUsesSortedPath(t *testing.T) {
+	f := newFixture(t)
+	id := f.v3("duplicate-id", "Global copy", "prompt", "answer", "2026-06-03T00:00:00Z", true)
+	const bucket = "0f0f0f0f0f0f0f0f"
+	f.v3InBucket(bucket, id, "Checkout copy", "prompt", "answer", "2026-06-03T00:00:00Z", true)
+	tieTime := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
+	for _, bucket := range []string{"_global", bucket} {
+		dir := filepath.Join(f.home, "sessions", bucket, "sess_"+id)
+		for _, name := range []string{"session.json", "messages.jsonl"} {
+			if err := os.Chtimes(filepath.Join(dir, name), tieTime, tieTime); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	sessions, err := OpenAt(f.home).Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	wantPath := filepath.Join(f.home, "sessions", "_global", "sess_"+id, "messages.jsonl")
+	if len(sessions) != 1 || sessions[0].JSONLPath != wantPath {
+		t.Fatalf("sessions = %#v, want lexicographically first path", sessions)
+	}
+}
+
 func TestFindByLocatorUsesExactFile(t *testing.T) {
 	f := newFixture(t)
 	classicID := f.classic("classic-id", "classic prompt", "classic answer", 1000)
