@@ -66,10 +66,10 @@ release:
   header: |
     ## ccsession {{ .Version }}
 
-    `claude --resume` のための fzf フロントエンド。
+    Fuzzy session picker for local coding-agent sessions.
   footer: |
     ---
-    インストール手順は README を参照。
+    See the README for installation instructions.
 
 # Homebrew tap への公開。`sorafujitani/homebrew-tap` へ push できる PAT を
 # CI の secret `HOMEBREW_TAP_GITHUB_TOKEN` に登録すると、タグを切るたびに

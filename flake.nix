@@ -11,7 +11,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         goPkg = pkgs.go;
-        ccsessionVersion = "1.2.0";
+        ccsessionVersion = "1.3.0";
       in
       {
         devShells.default = pkgs.mkShell {
