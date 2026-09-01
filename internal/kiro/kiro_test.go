@@ -21,16 +21,18 @@ func TestScanReadsClassicV2AndV3(t *testing.T) {
 	classicID := f.classic("classic-id", "classic prompt", "classic answer", 1000)
 	v2ID := f.v2("v2-id", "V2 title", "v2 prompt", "v2 answer", "2026-06-02T00:00:00Z")
 	v3ID := f.v3("v3-id", "V3 title", "v3 prompt", "v3 answer", "2026-06-03T00:00:00Z", true)
+	checkoutID := f.v3InBucket("11fe14a563f7aed6", "checkout-id", "Checkout title",
+		"checkout prompt", "checkout answer", "2026-06-04T00:00:00Z", true)
 
 	sessions, err := OpenAt(f.home).Scan()
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	if len(sessions) != 3 {
-		t.Fatalf("Scan returned %d sessions, want 3", len(sessions))
+	if len(sessions) != 4 {
+		t.Fatalf("Scan returned %d sessions, want 4", len(sessions))
 	}
 	got := sessionsByID(sessions)
-	for _, id := range []string{classicID, v2ID, v3ID} {
+	for _, id := range []string{classicID, v2ID, v3ID, checkoutID} {
 		if got[id] == nil {
 			t.Errorf("Scan missing %s", id)
 		}
@@ -43,6 +45,9 @@ func TestScanReadsClassicV2AndV3(t *testing.T) {
 	}
 	if got[v3ID].Label != "V3 title" || filepath.Base(got[v3ID].JSONLPath) != "messages.jsonl" {
 		t.Errorf("v3 session = %+v", got[v3ID])
+	}
+	if got[checkoutID].Label != "Checkout title" || !IsV3Path(got[checkoutID].JSONLPath) {
+		t.Errorf("checkout v3 session = %+v", got[checkoutID])
 	}
 	for _, sess := range sessions {
 		if sess.CWD != f.cwd || !sess.CWDExists || sess.CWDUnknown {
@@ -57,6 +62,8 @@ func TestMessagesRenderOnlyVisibleTurns(t *testing.T) {
 		f.classic("classic-id", "classic prompt", "classic answer", 1000),
 		f.v2("v2-id", "V2 title", "v2 prompt", "v2 answer", "2026-06-02T00:00:00Z"),
 		f.v3("v3-id", "V3 title", "v3 prompt", "v3 answer", "2026-06-03T00:00:00Z", true),
+		f.v3InBucket("11fe14a563f7aed6", "checkout-id", "Checkout title",
+			"checkout prompt", "checkout answer", "2026-06-04T00:00:00Z", true),
 	}
 	store := OpenAt(f.home)
 	for _, id := range ids {
@@ -84,6 +91,8 @@ func TestGrepKeysFeedScanFilteredAcrossStores(t *testing.T) {
 	f.classic("classic-id", "classic prompt", "classic needle", 1000)
 	v2ID := f.v2("v2-id", "V2 title", "v2 prompt", "v2 needle", "2026-06-02T00:00:00Z")
 	f.v3("v3-id", "V3 title", "v3 prompt", "v3 answer", "2026-06-03T00:00:00Z", true)
+	checkoutID := f.v3InBucket("11fe14a563f7aed6", "checkout-id", "Checkout title",
+		"checkout prompt", "checkout needle", "2026-06-04T00:00:00Z", true)
 	store := OpenAt(f.home)
 
 	keys, err := store.GrepKeys("v2 needle", false)
@@ -107,6 +116,14 @@ func TestGrepKeysFeedScanFilteredAcrossStores(t *testing.T) {
 	keys, err = store.GrepKeys("classic needle", false)
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("classic GrepKeys = %#v, err=%v", keys, err)
+	}
+
+	keys, err = store.GrepKeys("checkout needle", false)
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("checkout GrepKeys = %#v, err=%v", keys, err)
+	}
+	if _, ok := keys[checkoutID]; !ok {
+		t.Fatalf("GrepKeys missing checkout session %s", checkoutID)
 	}
 }
 
@@ -146,13 +163,15 @@ func TestFindByLocatorUsesExactFile(t *testing.T) {
 	classicID := f.classic("classic-id", "classic prompt", "classic answer", 1000)
 	v2ID := f.v2("v2-id", "V2 title", "v2 prompt", "v2 answer", "2026-06-02T00:00:00Z")
 	v3ID := f.v3("v3-id", "V3 title", "v3 prompt", "v3 answer", "2026-06-03T00:00:00Z", true)
+	checkoutID := f.v3InBucket("11fe14a563f7aed6", "checkout-id", "Checkout title",
+		"checkout prompt", "checkout answer", "2026-06-04T00:00:00Z", true)
 	store := OpenAt(f.home)
 	sessions, err := store.Scan()
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
 	got := sessionsByID(sessions)
-	for _, id := range []string{classicID, v2ID, v3ID} {
+	for _, id := range []string{classicID, v2ID, v3ID, checkoutID} {
 		found, err := store.FindByLocator(id, got[id].JSONLPath)
 		if err != nil {
 			t.Fatalf("FindByLocator(%s): %v", id, err)
@@ -297,8 +316,12 @@ func (f *fixture) v2(id, title, prompt, answer, updatedAt string) string {
 }
 
 func (f *fixture) v3(id, title, prompt, answer, updatedAt string, withCWD bool) string {
+	return f.v3InBucket("_global", id, title, prompt, answer, updatedAt, withCWD)
+}
+
+func (f *fixture) v3InBucket(bucket, id, title, prompt, answer, updatedAt string, withCWD bool) string {
 	f.t.Helper()
-	dir := filepath.Join(f.home, "sessions", "_global", "sess_"+id)
+	dir := filepath.Join(f.home, "sessions", bucket, "sess_"+id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		f.t.Fatal(err)
 	}
@@ -378,5 +401,36 @@ func TestReadJSONLLineSkipsOversizeLine(t *testing.T) {
 	line, err = readJSONLLine(reader, 1024)
 	if err != nil || string(line) != `{"ok":true}` {
 		t.Fatalf("next line = %q, err=%v", line, err)
+	}
+}
+
+func TestIsV3Path(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: filepath.Join("home", ".kiro", "sessions", "_global", "sess_id", "messages.jsonl"), want: true},
+		{path: filepath.Join("home", ".kiro", "sessions", "11fe14a563f7aed6", "sess_id", "messages.jsonl"), want: true},
+		{path: filepath.Join("home", ".kiro", "sessions", "cli", "sess_id", "messages.jsonl"), want: false},
+		{path: filepath.Join("home", "other", "bucket", "sess_id", "messages.jsonl"), want: false},
+		{path: filepath.Join("home", ".kiro", "sessions", "cli", "id.jsonl"), want: false},
+	}
+	for _, tt := range tests {
+		if got := IsV3Path(tt.path); got != tt.want {
+			t.Errorf("IsV3Path(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestOpenHonorsKiroHome(t *testing.T) {
+	want := t.TempDir()
+	t.Setenv(EnvHome, want)
+
+	store, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if store.home != want {
+		t.Errorf("Open home = %q, want %q", store.home, want)
 	}
 }

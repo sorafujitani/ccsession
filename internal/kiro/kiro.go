@@ -27,6 +27,7 @@ import (
 
 const (
 	Binary        = "kiro-cli"
+	EnvHome       = "KIRO_HOME"
 	classicPrefix = "classic:"
 	jsonlLineCap  = 64 * 1024 * 1024
 )
@@ -100,13 +101,17 @@ type classicText struct {
 }
 
 func Open() (*Store, error) {
-	home, err := os.UserHomeDir()
+	home, err := ResolveHome()
+	if err != nil {
+		return nil, err
+	}
+	userHome, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
 	return &Store{
-		home:   filepath.Join(home, ".kiro"),
-		dbPath: classicDBPath(home),
+		home:   home,
+		dbPath: classicDBPath(userHome),
 	}, nil
 }
 
@@ -114,6 +119,17 @@ func Open() (*Store, error) {
 // its root and sessions below it.
 func OpenAt(home string) *Store {
 	return &Store{home: home, dbPath: filepath.Join(home, "data.sqlite3")}
+}
+
+func ResolveHome() (string, error) {
+	if home := os.Getenv(EnvHome); home != "" {
+		return filepath.Abs(home)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".kiro"), nil
 }
 
 func (s *Store) Scan() ([]*session.Session, error) {
@@ -313,18 +329,28 @@ func (s *Store) metadataPaths() ([]string, error) {
 			}
 		}
 	}
-	v3Root := filepath.Join(s.home, "sessions", "_global")
-	entries, err = os.ReadDir(v3Root)
+	v3Root := filepath.Join(s.home, "sessions")
+	buckets, err := os.ReadDir(v3Root)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	for _, bucket := range buckets {
+		if !bucket.IsDir() || bucket.Name() == "cli" {
 			continue
 		}
-		dir := filepath.Join(v3Root, entry.Name())
-		if fileExists(filepath.Join(dir, "session.json")) && fileExists(filepath.Join(dir, "messages.jsonl")) {
-			paths = append(paths, filepath.Join(dir, "session.json"))
+		bucketDir := filepath.Join(v3Root, bucket.Name())
+		entries, err := os.ReadDir(bucketDir)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			dir := filepath.Join(bucketDir, entry.Name())
+			if fileExists(filepath.Join(dir, "session.json")) && fileExists(filepath.Join(dir, "messages.jsonl")) {
+				paths = append(paths, filepath.Join(dir, "session.json"))
+			}
 		}
 	}
 	sort.Strings(paths)
@@ -816,8 +842,12 @@ func isClassicPath(path string) bool {
 
 // IsV3Path reports whether path belongs to Kiro's v3 session store.
 func IsV3Path(path string) bool {
-	return filepath.Base(path) == "messages.jsonl" &&
-		filepath.Base(filepath.Dir(filepath.Dir(path))) == "_global"
+	if filepath.Base(path) != "messages.jsonl" {
+		return false
+	}
+	bucketDir := filepath.Dir(filepath.Dir(path))
+	return filepath.Base(filepath.Dir(bucketDir)) == "sessions" &&
+		filepath.Base(bucketDir) != "cli"
 }
 
 func fileModTime(path string) time.Time {

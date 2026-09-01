@@ -94,7 +94,8 @@ func TestKiro_ResumeSpec(t *testing.T) {
 		want []string
 	}{
 		{name: "classic and v2", path: "/kiro/sessions/cli/id.jsonl", want: []string{"kiro-cli", "chat", "--resume-id", "abc123"}},
-		{name: "v3", path: "/kiro/sessions/_global/sess_id/messages.jsonl", want: []string{"kiro-cli", "chat", "--v3", "--resume-id", "abc123"}},
+		{name: "v3 global", path: "/kiro/sessions/_global/sess_id/messages.jsonl", want: []string{"kiro-cli", "chat", "--v3", "--resume-id", "abc123"}},
+		{name: "v3 checkout", path: "/kiro/sessions/11fe14a563f7aed6/sess_id/messages.jsonl", want: []string{"kiro-cli", "chat", "--v3", "--resume-id", "abc123"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

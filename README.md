@@ -266,14 +266,14 @@ ccsession exits with an error instead of starting the picker.
 
 Backend-specific homes can be overridden with `GROK_HOME` for Grok,
 `CODEX_HOME` for Codex, `PI_CODING_AGENT_SESSION_DIR` for Pi, and
-`PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR` for Oh My Pi. Codex
-defaults to `~/.codex`, reading sessions from its `sessions` subdirectory; Pi
-reads sessions from `~/.pi/agent/sessions`, and `PI_CODING_AGENT_SESSION_DIR`
-points directly at that sessions directory. Oh My Pi reads sessions recursively
-from `~/.omp/agent/sessions`; `PI_CODING_AGENT_DIR` overrides the agent root,
-while `PI_CONFIG_DIR` changes the config root under the user's home when the
-agent-root override is unset. ccsession reads the resulting `agent/sessions`
-subdirectory.
+`PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR` for Oh My Pi. `KIRO_HOME` overrides
+Kiro CLI's v2 and v3 store, which defaults to `~/.kiro`. Codex defaults to
+`~/.codex`, reading sessions from its `sessions` subdirectory; Pi reads sessions
+from `~/.pi/agent/sessions`, and `PI_CODING_AGENT_SESSION_DIR` points directly
+at that sessions directory. Oh My Pi reads sessions recursively from
+`~/.omp/agent/sessions`; `PI_CODING_AGENT_DIR` overrides the agent root, while
+`PI_CONFIG_DIR` changes the config root under the user's home when the agent-root
+override is unset. ccsession reads the resulting `agent/sessions` subdirectory.
 
 ## Development
 
