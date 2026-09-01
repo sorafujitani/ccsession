@@ -123,7 +123,8 @@ func TestProp_PrefilterUsable_Definition(t *testing.T) {
 		q := rapid.String().Draw(rt, "query")
 		regex := rapid.Bool().Draw(rt, "regex")
 
-		want := !regex && isASCII(q) && !strings.ContainsAny(q, "\"\\\n\r")
+		want := !regex && isASCII(q) && !strings.ContainsAny(q, "\"\\\n\r") &&
+			!strings.ContainsAny(strings.ToLower(q), asciiFoldTargets)
 		if prefilterUsable(q, regex) != want {
 			rt.Fatalf("prefilterUsable(%q, %v)=%v, want %v", q, regex, prefilterUsable(q, regex), want)
 		}
