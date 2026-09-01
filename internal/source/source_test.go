@@ -18,6 +18,7 @@ import (
 )
 
 func TestFromEnv_SelectsBackend(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	// opencode resolves its DB from OPENCODE_DB; point it at a real file so the
 	// backend constructs (the file isn't opened until first query).
 	db := filepath.Join(t.TempDir(), "opencode.db")
@@ -43,6 +44,7 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 		{"codex", "codex", false},
 		{"pi", "pi", false},
 		{"omp", "omp", false},
+		{"kiro", "kiro", false},
 		// An unknown value is an error, not a silent fall back to claude:
 		// a typo must surface, not quietly show the wrong agent's sessions.
 		{"clauded", "", true},
@@ -81,6 +83,30 @@ func TestCodex_ResumeSpec(t *testing.T) {
 		if args[i] != want[i] {
 			t.Errorf("args[%d] = %q, want %q", i, args[i], want[i])
 		}
+	}
+}
+
+func TestKiro_ResumeSpec(t *testing.T) {
+	src := kiroSource{}
+	tests := []struct {
+		name string
+		path string
+		want []string
+	}{
+		{name: "classic and v2", path: "/kiro/sessions/cli/id.jsonl", want: []string{"kiro-cli", "chat", "--resume-id", "abc123"}},
+		{name: "v3 global", path: "/kiro/sessions/_global/sess_id/messages.jsonl", want: []string{"kiro-cli", "chat", "--v3", "--resume-id", "abc123"}},
+		{name: "v3 checkout", path: "/kiro/sessions/11fe14a563f7aed6/sess_id/messages.jsonl", want: []string{"kiro-cli", "chat", "--v3", "--resume-id", "abc123"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bin, args, err := src.ResumeSpec(&session.Session{ID: "abc123", JSONLPath: tt.path})
+			if err != nil {
+				t.Fatalf("ResumeSpec: %v", err)
+			}
+			if bin != "kiro-cli" || !slices.Equal(args, tt.want) {
+				t.Fatalf("ResumeSpec = %q %v, want kiro-cli %v", bin, args, tt.want)
+			}
+		})
 	}
 }
 
