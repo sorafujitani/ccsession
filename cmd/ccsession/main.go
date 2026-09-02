@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/sorafujitani/ccsession/internal/config"
+	"github.com/sorafujitani/ccsession/internal/last"
 	"github.com/sorafujitani/ccsession/internal/list"
 	"github.com/sorafujitani/ccsession/internal/preview"
 	"github.com/sorafujitani/ccsession/internal/resume"
@@ -166,6 +167,17 @@ FLAGS:
   --locator <locator> opaque session locator from list output
 `
 
+const lastUsage = `ccsession last - resume the most recent session
+
+USAGE:
+ccsession last [--here] [--exclude-dir <s>] [-n]
+
+FLAGS:
+--here              most recent under the current directory
+--exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive)
+-n                  dry-run: print session ID without resuming
+`
+
 func main() {
 	gf, args := parseGlobalFlags(os.Args[1:])
 	if gf.excludeDir != "" {
@@ -193,6 +205,8 @@ func main() {
 		cmdResumeSpec(args[1:])
 	case "resume":
 		cmdResume(args[1:])
+	case "last":
+		cmdLast(args[1:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	case "-v", "--version", "version":
@@ -473,6 +487,40 @@ func cmdResume(args []string) {
 	}
 	if err := resume.Run(rest[0], resume.Options{Locator: *locatorFlag}); err != nil {
 		fmt.Fprintln(os.Stderr, "ccsession resume:", err)
+		os.Exit(1)
+	}
+}
+
+func cmdLast(args []string) {
+	fs := newFlagSet("last", lastUsage)
+	hereFlag := fs.Bool("here", false, "most recent under the current directory")
+	excludeDirFlag := fs.String("exclude-dir", os.Getenv(excludeDirEnv), "hide sessions whose cwd contains <s> (case-insensitive)")
+	nFlag := fs.Bool("n", false, "dry-run: print what would be resumed")
+
+	if err := fs.Parse(args); err != nil {
+		handleFlagError("last", fs, err)
+	}
+	rest := fs.Args()
+	if len(rest) != 0 {
+		fmt.Fprintf(os.Stderr, "ccsession last: unexpected arguments: %s\n", strings.Join(rest, " "))
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	id, locator, err := last.Run(last.Options{
+		Here:       *hereFlag,
+		ExcludeDir: *excludeDirFlag,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ccsession last:", err)
+		os.Exit(1)
+	}
+	if *nFlag {
+		fmt.Println(id)
+		return
+	}
+	if err := resume.Run(id, resume.Options{Locator: locator}); err != nil {
+		fmt.Fprintln(os.Stderr, "ccsession last:", err)
 		os.Exit(1)
 	}
 }
