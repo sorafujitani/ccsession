@@ -18,7 +18,13 @@ import (
 	"github.com/sorafujitani/ccsession/internal/session"
 )
 
-const EnvHome = "CORTEX_CODE_HOME"
+const (
+	// EnvHome points directly at the Cortex Code home directory.
+	EnvHome = "CORTEX_CODE_HOME"
+	// EnvSnowflakeHome overrides the default ~/.snowflake directory; Cortex Code
+	// lives in its cortex subdirectory.
+	EnvSnowflakeHome = "SNOWFLAKE_HOME"
+)
 
 const jsonlLineCap = 64 * 1024 * 1024
 
@@ -63,9 +69,18 @@ func OpenAt(home string) *Store {
 	return &Store{home: home}
 }
 
+// ResolveHome returns the Cortex Code home directory. CORTEX_CODE_HOME wins,
+// then $SNOWFLAKE_HOME/cortex, then ~/.snowflake/cortex.
 func ResolveHome() (string, error) {
 	if home := os.Getenv(EnvHome); home != "" {
 		return filepath.Abs(home)
+	}
+	if sfHome := os.Getenv(EnvSnowflakeHome); sfHome != "" {
+		abs, err := filepath.Abs(sfHome)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(abs, "cortex"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

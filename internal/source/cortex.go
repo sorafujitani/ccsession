@@ -56,7 +56,7 @@ func (c cortexSource) GrepKeys(query string, regex bool) (map[string]struct{}, e
 }
 
 func (c cortexSource) ResumeSpec(s *session.Session) (string, []string, error) {
-	args := []string{"cortex", "resume", s.ID}
+	args := []string{"cortex", "--resume", s.ID}
 	if s.ConnectionName != "" {
 		args = append(args, "-c", s.ConnectionName)
 	}

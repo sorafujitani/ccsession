@@ -278,8 +278,9 @@ at that sessions directory. Oh My Pi reads sessions recursively from
 `PI_CONFIG_DIR` changes the config root under the user's home when the agent-root
 override is unset. ccsession reads the resulting `agent/sessions` subdirectory.
 `CORTEX_CODE_HOME` overrides the Cortex Code store, which defaults to
-`~/.snowflake/cortex`. Sessions are read from its `sessions` subdirectory, and
-each session's Snowflake connection name is preserved for resume.
+`$SNOWFLAKE_HOME/cortex` (`SNOWFLAKE_HOME` itself defaults to `~/.snowflake`).
+Sessions are read from its `conversations` subdirectory, and each session's
+Snowflake connection name is preserved for resume (`cortex --resume <id> -c <connection>`).
 
 ## Development
 

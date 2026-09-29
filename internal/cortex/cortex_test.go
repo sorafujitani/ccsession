@@ -127,12 +127,39 @@ func TestMessagesForSession(t *testing.T) {
 
 func TestResolveHome(t *testing.T) {
 	t.Setenv(EnvHome, "/custom/path")
+	t.Setenv(EnvSnowflakeHome, "/snowflake/home")
 	home, err := ResolveHome()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if home != "/custom/path" {
 		t.Errorf("expected /custom/path, got %q", home)
+	}
+}
+
+func TestResolveHomeHonorsSnowflakeHome(t *testing.T) {
+	t.Setenv(EnvHome, "")
+	t.Setenv(EnvSnowflakeHome, "/snowflake/home")
+	home, err := ResolveHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join("/snowflake/home", "cortex"); home != want {
+		t.Errorf("ResolveHome = %q, want %q", home, want)
+	}
+}
+
+func TestResolveHomeDefaultsToUserSnowflakeDir(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv(EnvHome, "")
+	t.Setenv(EnvSnowflakeHome, "")
+	home, err := ResolveHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(userHome, ".snowflake", "cortex"); home != want {
+		t.Errorf("ResolveHome = %q, want %q", home, want)
 	}
 }
 
