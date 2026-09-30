@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -27,6 +28,11 @@ const (
 )
 
 const jsonlLineCap = 64 * 1024 * 1024
+
+var (
+	ErrInvalidSessionID = errors.New("invalid Cortex session ID")
+	ErrJSONLLineTooLong = errors.New("JSONL line exceeds size limit")
+)
 
 type Store struct {
 	home string
@@ -141,7 +147,7 @@ func (s *Store) GrepKeys(query string, regex bool) (map[string]struct{}, error) 
 		}
 		ok, err := fileMessagesMatch(sess.JSONLPath, match)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("%s: %w", sess.JSONLPath, err)
 		}
 		if ok {
 			set[sess.ID] = struct{}{}
@@ -215,14 +221,19 @@ func (s *Store) representativeSessions() ([]*session.Session, error) {
 	}
 	seen := make(map[string]struct{})
 	out := make([]*session.Session, 0, len(paths))
-	candidates := filescan.Parallel(paths, func(path string) (*session.Session, bool) {
+	type result struct {
+		sess *session.Session
+		err  error
+	}
+	candidates := filescan.Parallel(paths, func(path string) (result, bool) {
 		sess, _, _, _, err := parseFile(path, false, 0)
-		if err != nil || sess == nil {
-			return nil, false
-		}
-		return sess, true
+		return result{sess, err}, err != nil || sess != nil
 	})
-	for _, sess := range candidates {
+	for _, candidate := range candidates {
+		if candidate.err != nil {
+			return nil, candidate.err
+		}
+		sess := candidate.sess
 		if _, ok := seen[sess.ID]; ok {
 			continue
 		}
@@ -244,19 +255,22 @@ func parseFile(path string, includeMessages bool, messageLimit int) (*session.Se
 	metaBytes, err := os.ReadFile(metaPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil, time.Time{}, 0, session.ErrSessionFileMissing
+			err = errors.Join(session.ErrSessionFileMissing, err)
 		}
-		return nil, nil, time.Time{}, 0, err
+		return nil, nil, time.Time{}, 0, fmt.Errorf("%s: %w", metaPath, err)
 	}
 
 	var meta metadata
 	if err := json.Unmarshal(metaBytes, &meta); err != nil {
-		return nil, nil, time.Time{}, 0, err
+		return nil, nil, time.Time{}, 0, fmt.Errorf("%s: %w", metaPath, err)
 	}
 
 	// main セッションのみ表示 (サブエージェントセッション除外)
 	if meta.SessionType != "" && meta.SessionType != "main" {
 		return nil, nil, time.Time{}, 0, nil
+	}
+	if meta.SessionID == "" || strings.ContainsAny(meta.SessionID, "\t\n\r") {
+		return nil, nil, time.Time{}, 0, fmt.Errorf("%s: %w", metaPath, ErrInvalidSessionID)
 	}
 
 	sess := &session.Session{
@@ -280,8 +294,14 @@ func parseFile(path string, includeMessages bool, messageLimit int) (*session.Se
 		sess.CWDUnknown = true
 	}
 
-	lastTS := parseISO(meta.LastUpdated)
-	startedAt := parseISO(meta.CreatedAt)
+	lastTS, err := parseISO(meta.LastUpdated)
+	if err != nil {
+		return nil, nil, time.Time{}, 0, fmt.Errorf("%s: last_updated: %w", metaPath, err)
+	}
+	startedAt, err := parseISO(meta.CreatedAt)
+	if err != nil {
+		return nil, nil, time.Time{}, 0, fmt.Errorf("%s: created_at: %w", metaPath, err)
+	}
 
 	var (
 		msgs      []session.Message
@@ -293,23 +313,23 @@ func parseFile(path string, includeMessages bool, messageLimit int) (*session.Se
 		f, err := os.Open(path)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return nil, nil, time.Time{}, 0, session.ErrSessionFileMissing
+				err = errors.Join(session.ErrSessionFileMissing, err)
 			}
-			return nil, nil, time.Time{}, 0, err
+			return nil, nil, time.Time{}, 0, fmt.Errorf("%s: %w", path, err)
 		}
 		defer f.Close()
 
-		err = scanJSONLLines(f, func(line []byte) {
+		err = scanJSONLLines(f, func(line []byte) error {
 			var e entry
 			if err := json.Unmarshal(line, &e); err != nil {
-				return
+				return err
 			}
 			if e.Role != "user" && e.Role != "assistant" {
-				return
+				return nil
 			}
-			body := extractVisibleText(e.Content, e.Role)
+			body := extractVisibleText(e.Content)
 			if body == "" {
-				return
+				return nil
 			}
 			if e.Role == "user" && firstUser == "" {
 				firstUser = body
@@ -319,9 +339,10 @@ func parseFile(path string, includeMessages bool, messageLimit int) (*session.Se
 				msgs = appendMessage(msgs, msg, total, messageLimit)
 			}
 			total++
+			return nil
 		})
 		if err != nil {
-			return nil, nil, time.Time{}, 0, err
+			return nil, nil, time.Time{}, 0, fmt.Errorf("%s: %w", path, err)
 		}
 	}
 
@@ -330,14 +351,16 @@ func parseFile(path string, includeMessages bool, messageLimit int) (*session.Se
 	}
 	label = session.SanitizeLabel(label)
 	if label == "" {
-		return nil, nil, time.Time{}, 0, session.ErrSessionEmpty
+		return nil, nil, time.Time{}, 0, fmt.Errorf("%s: %w", path, session.ErrSessionEmpty)
 	}
 	sess.Label = label
 
 	if lastTS.IsZero() {
-		if fi, err := os.Stat(path); err == nil {
-			lastTS = fi.ModTime()
+		fi, err := os.Stat(path)
+		if err != nil {
+			return nil, nil, time.Time{}, 0, err
 		}
+		lastTS = fi.ModTime()
 	}
 	sess.LastTime = lastTS
 	sess.LastEpoch = lastTS.Unix()
@@ -345,7 +368,7 @@ func parseFile(path string, includeMessages bool, messageLimit int) (*session.Se
 	return sess, collectMessages(msgs, total, messageLimit), startedAt, total, nil
 }
 
-func extractVisibleText(blocks []contentBlock, role string) string {
+func extractVisibleText(blocks []contentBlock) string {
 	var parts []string
 	for _, b := range blocks {
 		if b.Type != "text" {
@@ -377,20 +400,24 @@ func fileMessageTexts(path string) ([]string, error) {
 	}
 	defer f.Close()
 	var texts []string
-	err = scanJSONLLines(f, func(line []byte) {
+	err = scanJSONLLines(f, func(line []byte) error {
 		var e entry
 		if err := json.Unmarshal(line, &e); err != nil {
-			return
+			return err
 		}
 		if e.Role != "user" && e.Role != "assistant" {
-			return
+			return nil
 		}
-		body := extractVisibleText(e.Content, e.Role)
+		body := extractVisibleText(e.Content)
 		if body != "" {
 			texts = append(texts, body)
 		}
+		return nil
 	})
-	return texts, err
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return texts, nil
 }
 
 func appendMessage(msgs []session.Message, msg session.Message, total, limit int) []session.Message {
@@ -416,58 +443,44 @@ func collectMessages(msgs []session.Message, total, limit int) []session.Message
 	return out
 }
 
-func scanJSONLLines(r io.Reader, visit func([]byte)) error {
+func scanJSONLLines(r io.Reader, visit func([]byte) error) error {
 	br := bufio.NewReaderSize(r, 64*1024)
-	for {
+	for lineNumber := 1; ; lineNumber++ {
 		line, err := readJSONLLine(br, jsonlLineCap)
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("line %d: %w", lineNumber, err)
+		}
 		if len(line) > 0 {
-			visit(line)
+			if err := visit(line); err != nil {
+				return fmt.Errorf("line %d: %w", lineNumber, err)
+			}
 		}
 		if err == io.EOF {
 			return nil
-		}
-		if err != nil {
-			return err
 		}
 	}
 }
 
 func readJSONLLine(r *bufio.Reader, max int) ([]byte, error) {
-	var (
-		buf       bytes.Buffer
-		truncated bool
-	)
+	var buf bytes.Buffer
 	for {
 		chunk, err := r.ReadSlice('\n')
-		if len(chunk) > 0 && !truncated {
-			if buf.Len()+len(chunk) > max {
-				truncated = true
-			} else {
-				buf.Write(chunk)
-			}
+		if buf.Len()+len(chunk) > max {
+			return nil, ErrJSONLLineTooLong
 		}
+		buf.Write(chunk)
 		if err == bufio.ErrBufferFull {
 			continue
-		}
-		if truncated {
-			return nil, err
 		}
 		return bytes.TrimSpace(buf.Bytes()), err
 	}
 }
 
-func parseISO(s string) time.Time {
+func parseISO(s string) (time.Time, error) {
 	if s == "" {
-		return time.Time{}
+		return time.Time{}, nil
 	}
-	t, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		t, err = time.Parse("2006-01-02T15:04:05.000Z", s)
-		if err != nil {
-			return time.Time{}
-		}
-	}
-	return t
+	return time.Parse(time.RFC3339Nano, s)
 }
 
 func sortEpoch(epoch, nowEpoch int64) int64 {
