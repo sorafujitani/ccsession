@@ -1,0 +1,2 @@
+{"role":"user","id":"msg-1","content":[{"type":"text","text":"subagent task"}]}
+{"role":"assistant","id":"msg-2","content":[{"type":"text","text":"done"}]}

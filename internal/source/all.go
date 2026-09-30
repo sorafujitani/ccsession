@@ -24,7 +24,7 @@ func newAllSource() (Source, error) {
 	} else if ok {
 		sources = append(sources, src)
 	}
-	for _, open := range []func() (Source, error){newGrokSource, newCodexSource, newPiSource, newOMPSource, newKiroSource} {
+	for _, open := range []func() (Source, error){newGrokSource, newCodexSource, newPiSource, newOMPSource, newCortexSource, newKiroSource} {
 		src, err := open()
 		if err != nil {
 			return nil, err

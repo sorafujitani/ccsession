@@ -5,7 +5,7 @@
 ![ccsession demo](./docs/assets/ccsession_demo.gif)
 
 `ccsession` lists local agent sessions (Claude Code by default, with optional
-OpenCode, Grok, Codex, Pi, Oh My Pi, and Kiro CLI backends), lets you fuzzy-find across all of your
+OpenCode, Grok, Codex, Pi, Oh My Pi, Kiro CLI, and Cortex Code backends), lets you fuzzy-find across all of your
 projects with a live preview pane, and resumes the one you pick in its original
 working directory.
 
@@ -37,6 +37,7 @@ working directory.
 | [`pi`](https://pi.dev) (pi coding agent) | listing & resuming Pi sessions (only with `--source=pi`) |
 | [`omp`](https://omp.sh) (Oh My Pi) | listing & resuming Oh My Pi sessions (only with `--source=omp`) |
 | [`kiro-cli`](https://kiro.dev/cli/) | listing & resuming Kiro CLI classic, v2, and v3 sessions (only with `--source=kiro`) |
+| `cortex` ([Cortex Code CLI](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code)) | listing & resuming Cortex Code sessions (only with `--source=cortex`) |
 
 `ccsession` depends on newer `fzf` actions such as `transform`, `rebind`,
 `unbind`, `disable-search`, and `change-nth`. The newest of those,
@@ -93,7 +94,8 @@ and GoReleaser refreshes it on every tagged release. `fzf` is installed as a
 dependency; the `claude` CLI must be installed separately. `opencode`, `grok`,
 `codex`, `pi`, `omp`, and `kiro-cli` are needed only with their matching `--source` backends — they back
 optional features (unlike `fzf`, which is always required), so they are
-intentionally left out of the formula's `depends_on`.
+intentionally left out of the formula's `depends_on`. `cortex` (Cortex Code CLI)
+is similarly optional and only needed with `--source=cortex`.
 
 ## Usage
 
@@ -104,6 +106,7 @@ ccsession --codex                    # use Codex sessions from ~/.codex/sessions
 ccsession --pi                       # use Pi sessions from ~/.pi/agent/sessions
 ccsession --omp                      # use Oh My Pi sessions from ~/.omp/agent/sessions
 ccsession --kiro                     # use Kiro CLI sessions
+ccsession --cortex                   # use Cortex Code sessions from ~/.snowflake/cortex/
 ccsession list  [--grep Q] [--regex] # emit TSV rows to stdout
 ccsession list --json --grep Q --limit 5 # emit structured rows for agents
 ccsession preview [--query Q] [--regex] <id> # render the preview pane (Q highlighted)
@@ -249,7 +252,7 @@ ccsession exits with an error instead of starting the picker.
 
 1. `ccsession list` reads the selected backend (`~/.claude/projects/*/` by
    default, or `--source=opencode` / `--source=grok` / `--source=codex` /
-   `--source=pi` / `--source=omp` / `--source=kiro`) and prints one TSV row
+   `--source=pi` / `--source=omp` / `--source=kiro` / `--source=cortex`) and prints one TSV row
    per session (`id`, `locator`, `epoch`, relative time, cwd basename, label).
    `ccsession list --json --limit N` emits the same candidates as a JSON array
    for agent integrations.
@@ -274,6 +277,10 @@ at that sessions directory. Oh My Pi reads sessions recursively from
 `~/.omp/agent/sessions`; `PI_CODING_AGENT_DIR` overrides the agent root, while
 `PI_CONFIG_DIR` changes the config root under the user's home when the agent-root
 override is unset. ccsession reads the resulting `agent/sessions` subdirectory.
+`CORTEX_CODE_HOME` overrides the Cortex Code store, which defaults to
+`$SNOWFLAKE_HOME/cortex` (`SNOWFLAKE_HOME` itself defaults to `~/.snowflake`).
+Sessions are read from its `conversations` subdirectory, and each session's
+Snowflake connection name is preserved for resume (`cortex --resume <id> -c <connection>`).
 
 ## Development
 

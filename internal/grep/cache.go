@@ -11,7 +11,8 @@ import (
 const EnvCacheDir = "CCSESSION_GREP_CACHE_DIR"
 
 const (
-	cacheVersion     = 2
+	// Invalidate text cached before Cortex stopped skipping malformed JSONL.
+	cacheVersion     = 3
 	cacheIndexName   = "index.json"
 	cacheTextSep     = "\x00"
 	defaultCachePerm = 0o600

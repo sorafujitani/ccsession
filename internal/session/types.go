@@ -33,6 +33,9 @@ type Session struct {
 	// Source is the backend that produced this session ("claude"), stamped by
 	// the source package; the session package itself leaves it empty.
 	Source string
+	// ConnectionName is the Snowflake connection used when the session was
+	// created (Cortex Code only). Used by resume to pass -c to cortex CLI.
+	ConnectionName string
 }
 
 // Message is one rendered transcript turn, the unit the preview pane displays.

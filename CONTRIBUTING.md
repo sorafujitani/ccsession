@@ -17,6 +17,7 @@ can agree on the approach before you invest time in a PR.
 | [`opencode`](https://opencode.ai) | exercising the `--source=opencode` backend (optional) |
 | `grok` (Grok Build TUI) | exercising the `--source=grok` backend (optional) |
 | `codex` (Codex CLI) | exercising the `--source=codex` backend (optional) |
+| `cortex` ([Cortex Code CLI](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code)) | exercising the `--source=cortex` backend (optional) |
 
 A [Nix](https://nixos.org/) flake is provided that pins Go, `fzf`, `gopls`, and
 `goreleaser`. It is the quickest way to get a reproducible toolchain, but it is
@@ -67,6 +68,7 @@ cmd/ccsession/    entry point and CLI wiring
 internal/
   ansi/           ANSI escape helpers
   config/         config-file + env + flag resolution
+  cortex/         Cortex Code JSONL backend (sessions, preview, grep)
   grep/           full-text search over JSONL transcripts
   grok/           Grok JSON/JSONL backend (sessions, preview, grep)
   list/           TSV row rendering for fzf
@@ -131,6 +133,7 @@ release, run a manual smoke test against real installs:
    - press Enter — it resumes in the original directory (**resume**).
 3. Repeat the same checklist with a Grok session using `ccsession --grok`.
 4. Repeat the same checklist with a Codex session using `ccsession --codex`.
+5. Repeat the same checklist with a Cortex Code session using `ccsession --cortex`.
 
 The Claude backend is exercised continuously in everyday use, so it needs no
 separate checklist.

@@ -1,0 +1,2 @@
+{"role":"user","id":"msg-1","content":[{"type":"text","text":"Explain error handling best practices in Rust"}]}
+{"role":"assistant","id":"msg-2","content":[{"type":"text","text":"Use Result<T, E> and the ? operator for propagating errors."}]}

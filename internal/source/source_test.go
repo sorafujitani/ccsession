@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sorafujitani/ccsession/internal/codex"
+	"github.com/sorafujitani/ccsession/internal/cortex"
 	"github.com/sorafujitani/ccsession/internal/grok"
 	"github.com/sorafujitani/ccsession/internal/omp"
 	"github.com/sorafujitani/ccsession/internal/opencode"
@@ -30,6 +31,8 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 	t.Setenv(codex.EnvHome, t.TempDir())
 	t.Setenv(pi.EnvSessionsDir, t.TempDir())
 	t.Setenv(omp.EnvAgentDir, t.TempDir())
+	t.Setenv(cortex.EnvHome, t.TempDir())
+	t.Setenv(cortex.EnvSnowflakeHome, t.TempDir())
 
 	cases := []struct {
 		env      string
@@ -45,6 +48,7 @@ func TestFromEnv_SelectsBackend(t *testing.T) {
 		{"pi", "pi", false},
 		{"omp", "omp", false},
 		{"kiro", "kiro", false},
+		{"cortex", "cortex", false},
 		// An unknown value is an error, not a silent fall back to claude:
 		// a typo must surface, not quietly show the wrong agent's sessions.
 		{"clauded", "", true},
@@ -83,6 +87,28 @@ func TestCodex_ResumeSpec(t *testing.T) {
 		if args[i] != want[i] {
 			t.Errorf("args[%d] = %q, want %q", i, args[i], want[i])
 		}
+	}
+}
+
+func TestCortex_ResumeSpec(t *testing.T) {
+	tests := []struct {
+		name string
+		sess *session.Session
+		want []string
+	}{
+		{"without connection", &session.Session{ID: "abc123"}, []string{"cortex", "--resume", "abc123"}},
+		{"with connection", &session.Session{ID: "abc123", ConnectionName: "prod"}, []string{"cortex", "--resume", "abc123", "-c", "prod"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bin, args, err := cortexSource{}.ResumeSpec(tt.sess)
+			if err != nil {
+				t.Fatalf("ResumeSpec: %v", err)
+			}
+			if bin != "cortex" || !slices.Equal(args, tt.want) {
+				t.Fatalf("ResumeSpec = %q %v, want cortex %v", bin, args, tt.want)
+			}
+		})
 	}
 }
 

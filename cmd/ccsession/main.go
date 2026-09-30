@@ -77,7 +77,7 @@ USAGE:
   non-flag argument).
 
 GLOBAL FLAGS:
-  --source <s>        session backend: claude (default) | all | opencode | grok | codex | pi | omp | kiro. Inherited
+  --source <s>        session backend: claude (default) | all | opencode | grok | codex | pi | omp | cortex | kiro. Inherited
                       by the picker's reload/preview/resume re-invocations via
                       CCSESSION_SOURCE.
   --all               shorthand for --source=all
@@ -86,6 +86,7 @@ GLOBAL FLAGS:
   --codex             shorthand for --source=codex
   --pi                shorthand for --source=pi
   --omp               shorthand for --source=omp
+  --cortex            shorthand for --source=cortex
   --kiro              shorthand for --source=kiro
   --exclude-dir <s>   hide sessions whose cwd contains <s> (case-insensitive).
                       Applied to every list call, including grep/dir/fuzzy
@@ -221,6 +222,7 @@ type globalFlags struct {
 	codex      bool
 	pi         bool
 	omp        bool
+	cortex     bool
 	kiro       bool
 	binds      config.Keybindings
 }
@@ -267,6 +269,12 @@ func applySource(gf globalFlags) error {
 			return fmt.Errorf("--omp conflicts with --source=%s", name)
 		}
 		name = "omp"
+	}
+	if gf.cortex {
+		if name != "" && name != "cortex" {
+			return fmt.Errorf("--cortex conflicts with --source=%s", name)
+		}
+		name = "cortex"
 	}
 	if gf.kiro {
 		if name != "" && name != "kiro" {
@@ -334,6 +342,12 @@ next:
 		// --omp is sugar for --source=omp and takes no value.
 		if a == "--omp" {
 			gf.omp = true
+			i++
+			continue next
+		}
+		// --cortex is sugar for --source=cortex and takes no value.
+		if a == "--cortex" {
+			gf.cortex = true
 			i++
 			continue next
 		}

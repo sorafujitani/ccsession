@@ -1,0 +1,4 @@
+{"role":"user","id":"msg-1","content":[{"type":"text","text":"How do I implement the builder pattern in Go?"},{"type":"text","text":"<system-reminder>This should be filtered</system-reminder>"}]}
+{"role":"assistant","id":"msg-2","content":[{"type":"text","text":"The builder pattern in Go uses a struct with method chaining."}]}
+{"role":"user","id":"msg-3","content":[{"type":"text","text":"Can you show me an example?"}]}
+{"role":"assistant","id":"msg-4","content":[{"type":"text","text":"Here is an example using a ConfigBuilder struct."},{"type":"text","text":"","internalOnly":true}]}
