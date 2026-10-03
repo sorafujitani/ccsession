@@ -116,3 +116,25 @@ func TestFilterOutByDir(t *testing.T) {
 		}
 	}
 }
+
+// Regression: when the newest session has a missing/unknown CWD, we pick the next resumable one.
+func TestRun_SkipLatestMissingCWD_PicksNext(t *testing.T) {
+	home := t.TempDir()
+	goodCWD := t.TempDir()
+	badCWD := filepath.Join(t.TempDir(), "deleted-dir")
+
+	t.Setenv("HOME", home)
+	t.Setenv(source.EnvVar, "")
+
+	// newest is missing; older is valid and should be selected
+	writeListSession(t, home, badCWD, "33333333-3333-3333-3333-333333333333", "2026-05-26T12:00:00Z", "newest-bad")
+	writeListSession(t, home, goodCWD, "22222222-2222-2222-2222-222222222222", "2026-05-26T11:00:00Z", "older-good")
+
+	id, _, err := Run(Options{})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if id != "22222222-2222-2222-2222-222222222222" {
+		t.Errorf("expected to pick older-good, got %s", id)
+	}
+}
