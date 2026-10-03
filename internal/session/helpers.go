@@ -5,6 +5,24 @@ import (
 	"strings"
 )
 
+// FilterOutByDir removes sessions whose cwd (or fallback basename) contains
+// needle, case-insensitively. It reuses the input slice's backing array.
+func FilterOutByDir(sessions []*Session, needle string) []*Session {
+	lneedle := strings.ToLower(needle)
+	out := sessions[:0]
+	for _, s := range sessions {
+		target := s.CWD
+		if target == "" {
+			target = s.CWDBasename
+		}
+		if target != "" && strings.Contains(strings.ToLower(target), lneedle) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 // ExtractText returns the concatenated text of a message Content payload.
 // Content may be a bare JSON string or an array of typed blocks; only "text"
 // blocks contribute, joined by sep.

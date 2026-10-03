@@ -39,6 +39,40 @@ func TestIsUnderOrEqual_Symlinks(t *testing.T) {
 	}
 }
 
+func TestRun_Here_SymlinkParentTraversal(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "base")
+	outside := filepath.Join(root, "outside")
+	for _, dir := range []string{filepath.Join(base, "other"), filepath.Join(outside, "sub"), filepath.Join(outside, "other")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(filepath.Join(outside, "sub"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv(source.EnvVar, "")
+	t.Chdir(base)
+
+	// Keep the original path: filepath.Join would clean link/.. before resolving it.
+	target := link + string(os.PathSeparator) + ".." + string(os.PathSeparator) + "other"
+	writeListSession(t, home, target, "22222222-2222-2222-2222-222222222222", "2026-05-26T11:00:00Z", "outside")
+	writeListSession(t, home, base, "11111111-1111-1111-1111-111111111111", "2026-05-26T10:00:00Z", "inside")
+
+	id, _, err := Run(Options{Here: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("selected %s: must not resume outside the current directory", id)
+	}
+}
+
 func TestRun_Here_WithSymlink(t *testing.T) {
 	root := t.TempDir()
 	real := filepath.Join(root, "proj")
