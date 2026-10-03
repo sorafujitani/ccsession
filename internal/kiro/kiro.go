@@ -414,34 +414,7 @@ func (s *Store) classicSessions() ([]*session.Session, error) {
 		return nil, err
 	}
 	defer db.Close()
-	const q = `SELECT c.key, c.conversation_id,
-	COALESCE((
-		SELECT json_extract(h.value, '$.user.content.Prompt.prompt')
-		FROM json_each(c.value, '$.history') h
-		WHERE json_type(h.value, '$.user.content.Prompt.prompt') = 'text'
-		ORDER BY CAST(h.key AS INTEGER) DESC
-		LIMIT 1
-	), ''), c.updated_at
-FROM conversations_v2 c
-ORDER BY c.key`
-	rows, err := db.Query(q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*session.Session
-	for rows.Next() {
-		var cwd, id, label string
-		var updatedAt int64
-		if err := rows.Scan(&cwd, &id, &label, &updatedAt); err != nil {
-			return nil, err
-		}
-		sess := newSession(id, cwd, label, msToTime(updatedAt), filepath.Dir(s.dbPath), classicPrefix+cwd)
-		if sess != nil {
-			out = append(out, sess)
-		}
-	}
-	return out, rows.Err()
+	return s.cachedClassicSessions(db, "", "", false)
 }
 
 func (s *Store) classicSession(id, cwd string) (*session.Session, error) {
@@ -453,24 +426,14 @@ func (s *Store) classicSession(id, cwd string) (*session.Session, error) {
 		return nil, session.ErrSessionFileMissing
 	}
 	defer db.Close()
-	const q = `SELECT COALESCE((
-		SELECT json_extract(h.value, '$.user.content.Prompt.prompt')
-		FROM json_each(c.value, '$.history') h
-		WHERE json_type(h.value, '$.user.content.Prompt.prompt') = 'text'
-		ORDER BY CAST(h.key AS INTEGER) DESC
-		LIMIT 1
-	), ''), c.updated_at
-FROM conversations_v2 c
-WHERE c.key = ? AND c.conversation_id = ?`
-	var label string
-	var updatedAt int64
-	if err := db.QueryRow(q, cwd, id).Scan(&label, &updatedAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, session.ErrSessionFileMissing
-		}
+	sessions, err := s.cachedClassicSessions(db, id, cwd, true)
+	if err != nil {
 		return nil, err
 	}
-	return newSession(id, cwd, label, msToTime(updatedAt), filepath.Dir(s.dbPath), classicPrefix+cwd), nil
+	if len(sessions) == 0 {
+		return nil, session.ErrSessionFileMissing
+	}
+	return sessions[0], nil
 }
 
 func (s *Store) classicMessages(id, cwd string) ([]session.Message, time.Time, error) {

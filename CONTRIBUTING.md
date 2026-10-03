@@ -53,6 +53,22 @@ the standard Go output. To compare two saved benchmark runs:
 task benchstat BEFORE=/tmp/before.txt AFTER=/tmp/after.txt
 ```
 
+For the large startup workload, generate synthetic sessions and measure both
+CLI output and the interactive picker:
+
+```sh
+go build -o ./ccsession ./cmd/ccsession
+python3 scripts/benchmark-startup.py \
+  --binary ./ccsession --data-dir /tmp/ccsession-startup --picker
+```
+
+The defaults create 4,451 Kiro classic conversations and 647 Claude sessions,
+with about 2.3 GB of conversation JSON. Allow enough disk space. The script
+isolates agent stores and caches, reports cold, warm, and single-row-update
+medians, and closes the picker without resuming a session. To compare revisions,
+use binaries built from each revision with the same data directory. Run one
+benchmark process per directory; OS page caches are not cleared.
+
 A few useful commands while developing:
 
 ```sh
