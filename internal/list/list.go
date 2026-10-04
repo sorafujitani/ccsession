@@ -59,7 +59,7 @@ func Run(opts Options) error {
 		return err
 	}
 	if needle := strings.TrimSpace(opts.ExcludeDir); needle != "" {
-		sessions = filterOutByDir(sessions, needle)
+		sessions = session.FilterOutByDir(sessions, needle)
 	}
 	if opts.Limit < 0 {
 		return fmt.Errorf("limit must be >= 0")
@@ -142,25 +142,6 @@ func isTerminal(f *os.File) bool {
 		return false
 	}
 	return (fi.Mode() & os.ModeCharDevice) != 0
-}
-
-func filterOutByDir(sessions []*session.Session, needle string) []*session.Session {
-	lneedle := strings.ToLower(needle)
-	// Deliberately reuse the argument slice's backing array for the filtered
-	// result; safe because the caller (list.Run) immediately reassigns the
-	// return value over the slice it passed in.
-	out := sessions[:0]
-	for _, s := range sessions {
-		target := s.CWD
-		if target == "" {
-			target = s.CWDBasename
-		}
-		if target != "" && strings.Contains(strings.ToLower(target), lneedle) {
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
 }
 
 func loadSessions(src source.Source, query string, regex bool) ([]*session.Session, error) {
