@@ -4,20 +4,20 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
+	"errors"
 	"io"
 	"os"
-	"runtime"
+
+	"github.com/sorafujitani/ccsession/internal/filescan"
 )
 
 // A snapshot is a fast-path hint, not a per-row revision. Changed or uncertain
 // snapshots fall back to content hashes, including same-timestamp row updates.
+// Platforms without file stamps return "" and keep the content-hash fallback.
+// Every commit a reader can observe changes the SQLite or WAL headers hashed
+// here, so recent writes need no timestamp margin. (An EXCLUSIVE locking-mode
+// writer may skip header updates, but holds its lock across commits.)
 func classicDatabaseSnapshot(path string) string {
-	// These platforms expose inode/device and nanosecond ctime in FileInfo.Sys.
-	// Other platforms retain the content-hash fallback rather than trusting mtime.
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		return ""
-	}
 	hash := sha256.New()
 	for _, wal := range []bool{false, true} {
 		name := path
@@ -37,7 +37,7 @@ func classicDatabaseSnapshot(path string) string {
 		if err != nil {
 			return ""
 		}
-		hash.Write(stamp)
+		hash.Write([]byte(stamp))
 		hash.Write(header)
 		if wal {
 			// A commit frame can reach the WAL before readers see its publication.
@@ -58,25 +58,14 @@ func classicDatabaseSnapshot(path string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func classicFileSnapshot(file *os.File, wal bool) ([]byte, []byte, error) {
+func classicFileSnapshot(file *os.File, wal bool) (string, []byte, error) {
 	info, err := file.Stat()
 	if err != nil {
-		return nil, nil, err
+		return "", nil, err
 	}
-	raw, err := json.Marshal(info.Sys())
-	if err != nil {
-		return nil, nil, err
-	}
-	var stat map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &stat); err != nil {
-		return nil, nil, err
-	}
-	// Reading the DB may change atime, which must not invalidate the cache.
-	delete(stat, "Atim")
-	delete(stat, "Atimespec")
-	stamp, err := json.Marshal(stat)
-	if err != nil {
-		return nil, nil, err
+	stamp := filescan.Stamp(info)
+	if stamp == "" {
+		return "", nil, errors.New("kiro: file stamps unsupported")
 	}
 	size := 100 // SQLite header, including the change counter.
 	if wal {
@@ -85,7 +74,7 @@ func classicFileSnapshot(file *os.File, wal bool) ([]byte, []byte, error) {
 	header := make([]byte, size)
 	n, err := file.ReadAt(header, 0)
 	if err != nil && err != io.EOF {
-		return nil, nil, err
+		return "", nil, err
 	}
 	header = header[:n]
 	if wal && n == 32 {
@@ -97,7 +86,7 @@ func classicFileSnapshot(file *os.File, wal bool) ([]byte, []byte, error) {
 			offset := 32 + ((info.Size()-32)/frameSize-1)*frameSize
 			frame := make([]byte, 24)
 			if _, err := file.ReadAt(frame, offset); err != nil {
-				return nil, nil, err
+				return "", nil, err
 			}
 			header = append(header, frame...)
 		}

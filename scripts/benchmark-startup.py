@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproduce issue #124 with synthetic data only (Python stdlib + Go-built CLI)."""
+"""Reproduce issues #124 and #126 with synthetic data only (Python stdlib + Go-built CLI)."""
 
 import argparse
 import fcntl
@@ -38,6 +38,67 @@ def conversation(index, turn_bytes, updated_prompt=None):
     return json.dumps({"history": history}, separators=(",", ":"))
 
 
+def codex_id(index):
+    return f"22222222-2222-4222-8222-{index:012}"
+
+
+def codex_line(kind, payload):
+    entry = {"timestamp": "2026-06-01T00:00:00Z", "type": kind, "payload": payload}
+    return json.dumps(entry, separators=(",", ":")) + "\n"
+
+
+def codex_user(text):
+    return codex_line(
+        "response_item",
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": text}],
+        },
+    )
+
+
+def codex_path(root, index):
+    sessions = root / "home/.codex/sessions/2026/06/01"
+    return sessions / f"rollout-2026-06-01T00-00-00-{codex_id(index)}.jsonl"
+
+
+def write_codex(root, cwd, index, size):
+    """Mostly large tool output and compacted history, like real rollouts."""
+    path = codex_path(root, index)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    chunk = "y" * 65536
+    with path.open("w") as f:
+        f.write(
+            codex_line(
+                "session_meta",
+                {
+                    "id": codex_id(index),
+                    "timestamp": "2026-06-01T00:00:00Z",
+                    "cwd": str(cwd),
+                },
+            )
+        )
+        f.write(codex_user(f"synthetic codex conversation {index}"))
+        written, count = 0, 0
+        while written < size:
+            # Three of four records are compacted history, as in large rollouts.
+            if count % 4 == 3:
+                payload = {"type": "function_call_output", "output": chunk}
+                line = codex_line("response_item", payload)
+            else:
+                history = [{"content": [{"text": chunk}]}]
+                line = codex_line("compacted", {"replacement_history": history})
+            f.write(line)
+            written += len(line)
+            count += 1
+
+
+def append_codex(root, iteration):
+    with codex_path(root, 0).open("a") as f:
+        f.write(codex_user(f"updated prompt {iteration}"))
+
+
 def fixture(args):
     root = args.data_dir.resolve()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -54,6 +115,9 @@ def fixture(args):
         "claude_rows": args.claude_rows,
         "turn_bytes": args.turn_bytes,
     }
+    if args.codex_rows:
+        # Only recorded when used, so fixtures made before Codex still match.
+        config.update(codex_rows=args.codex_rows, codex_bytes=args.codex_bytes)
     manifest = root / "fixture.json"
     if manifest.exists():
         try:
@@ -103,6 +167,8 @@ def fixture(args):
             },
         }
         (projects / f"{session_id}.jsonl").write_text(json.dumps(entry) + "\n")
+    for index in range(args.codex_rows):
+        write_codex(root, cwd, index, args.codex_bytes)
     manifest.write_text(json.dumps(config, indent=2) + "\n")
     return root, db_path, config
 
@@ -201,6 +267,7 @@ def run_picker(binary, env, root):
                     for label in (
                         b"synthetic claude",
                         b"synthetic kiro",
+                        b"synthetic codex",
                         b"updated prompt",
                     )
                 )
@@ -245,15 +312,21 @@ def main():
     parser.add_argument("--rows", type=int, default=4451)
     parser.add_argument("--claude-rows", type=int, default=647)
     parser.add_argument("--turn-bytes", type=int, default=12400)
+    parser.add_argument("--codex-rows", type=int, default=0)
+    parser.add_argument("--codex-bytes", type=int, default=10_000_000)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--output", type=Path)
     parser.add_argument(
         "--picker", action="store_true", help="measure real fzf load in a PTY"
     )
     args = parser.parse_args()
-    if min(args.rows, args.turn_bytes, args.repeats) < 1 or args.claude_rows < 0:
+    if (
+        min(args.rows, args.turn_bytes, args.repeats, args.codex_bytes) < 1
+        or min(args.claude_rows, args.codex_rows) < 0
+    ):
         parser.error(
-            "rows, turn-bytes and repeats must be positive; claude-rows must be nonnegative"
+            "rows, turn-bytes, codex-bytes and repeats must be positive; "
+            "claude-rows and codex-rows must be nonnegative"
         )
     root, db_path, config = fixture(args)
     report: dict[str, object] = {"fixture": config}
@@ -262,7 +335,7 @@ def main():
         env = environment(root)
         update_one(db_path, args.turn_bytes)
         cases = {}
-        expected = args.rows + args.claude_rows
+        expected = args.rows + args.claude_rows + args.codex_rows
         for case in ("cold", "warm", "updated"):
             if case != "cold":
                 run_list(binary, env)
@@ -276,6 +349,8 @@ def main():
                             update_one(
                                 db_path, args.turn_bytes, 2 * iteration + int(picker)
                             )
+                            if args.codex_rows:
+                                append_codex(root, 2 * iteration + int(picker))
                     except (OSError, sqlite3.Error) as error:
                         raise RuntimeError(
                             "cannot prepare the synthetic fixture"
@@ -296,6 +371,12 @@ def main():
                             )
                             if changed["label"] != f"updated prompt {2 * iteration}":
                                 raise AssertionError("updated label is stale")
+                            if args.codex_rows and not any(
+                                row["id"] == f"codex:{codex_id(0)}"
+                                and row["label"] == f"updated prompt {2 * iteration}"
+                                for row in rows
+                            ):
+                                raise AssertionError("appended Codex label is stale")
                         timings["list_seconds"].append(elapsed)
             cases[case] = {
                 key: {"samples": values, "median": statistics.median(values)}

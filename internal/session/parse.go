@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/sorafujitani/ccsession/internal/timefmt"
 )
@@ -205,16 +207,39 @@ func readTail(path string, maxBytes int64) ([]byte, error) {
 // for reuse by other sources (OpenCode titles come from the DB, not a JSONL).
 func SanitizeLabel(s string) string {
 	// Replace every C0/C1-ish control char (ESC, BEL, DEL, …) with a space,
-	// not just CR/LF/TAB. Pasted ANSI color codes otherwise leak through
-	// and can hijack fzf rendering.
-	s = strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
-			return ' '
+	// not just CR/LF/TAB, then collapse whitespace runs and truncate. Pasted
+	// ANSI color codes otherwise leak through and can hijack fzf rendering.
+	// One pass that stops at LabelMaxLen runes: prompts can be megabytes.
+	out := make([]byte, 0, min(len(s), 4*LabelMaxLen))
+	n, cut := 0, 0 // Runes in out; len(out) at LabelMaxLen-1 runes.
+	full := false
+	add := func(r rune) {
+		if n == LabelMaxLen {
+			full = true
+			return
 		}
-		return r
-	}, s)
-	s = strings.Join(strings.Fields(s), " ")
-	return Truncate(s, LabelMaxLen)
+		if n == LabelMaxLen-1 {
+			cut = len(out)
+		}
+		out = utf8.AppendRune(out, r)
+		n++
+	}
+	space := false // A space is owed before the next word.
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || unicode.IsSpace(r) {
+			space = n > 0
+			continue
+		}
+		if space {
+			add(' ')
+			space = false
+		}
+		if add(r); full {
+			// Matches Truncate: LabelMaxLen-1 runes and an ellipsis.
+			return string(out[:cut]) + "…"
+		}
+	}
+	return string(out)
 }
 
 func firstNonEmpty(values ...string) string {
