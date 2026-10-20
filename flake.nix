@@ -11,7 +11,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         goPkg = pkgs.go;
-        ccsessionVersion = "1.4.0";
+        ccsessionVersion = "1.6.0";
       in
       {
         devShells.default = pkgs.mkShell {
@@ -44,7 +44,7 @@
           # go.mod の依存（TOML パーサ + pure-Go SQLite ドライバ）を取得・
           # 検証する固定出力ハッシュ。依存を更新したら一旦 pkgs.lib.fakeHash
           # に戻してビルドし、報告された hash を貼り直す。
-          vendorHash = "sha256-87X5go1iG4gqUTHXbZoxWuAhk+jWv6OBIQVb5UfFfzs=";
+          vendorHash = "sha256-JinnPBHWvvb6har8Zljw7/tPN3LTeRVOqPly01os484=";
           subPackages = [ "cmd/ccsession" ];
           ldflags = [
             "-s"
