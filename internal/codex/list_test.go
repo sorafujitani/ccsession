@@ -180,7 +180,12 @@ func TestCodexCacheRecordLifecycle(t *testing.T) {
 	}
 
 	// Same-size edits with a restored mtime, truncation, and replacement all
-	// fail the prefix check.
+	// fail the prefix check. The fake clock above lets files written moments
+	// ago keep stamps, and a rewrite within the filesystem's timestamp
+	// granularity (a kernel tick for ctime on Linux ext4) can keep the same
+	// ctime, so drop the stamp to reach the prefix check. Real scans record a
+	// stamp only once its timestamps are older than the racy window.
+	rec.Stamp = ""
 	info, _ := os.Stat(path)
 	data, _ = os.ReadFile(path)
 	write(strings.Replace(string(data), "first", "FIRST", 1))
