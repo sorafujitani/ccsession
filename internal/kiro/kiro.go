@@ -507,7 +507,7 @@ func (s *Store) openClassic() (*sql.DB, error) {
 		return nil, nil
 	}
 	u := url.URL{Scheme: "file", Path: s.dbPath}
-	u.RawQuery = "mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)"
+	u.RawQuery = "mode=ro&vfs=" + classicVFS + "&_pragma=busy_timeout(5000)&_pragma=query_only(1)"
 	return sql.Open("sqlite3", u.String())
 }
 

@@ -221,10 +221,10 @@ func TestRepresentativeSessionsParsesInParallel(t *testing.T) {
 			`{"timestamp":"2026-06-14T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"` + id + `"}]}}` + "\n"
 		writeSessionNamed(t, home, fmt.Sprintf("2026/06/14/%s.jsonl", id), body)
 	}
-	orig := parseSessionFile
+	orig := scanSessionFile
 	var active atomic.Int32
 	var maxActive atomic.Int32
-	parseSessionFile = func(path string, includeMessages bool, messageLimit int) (*session.Session, []session.Message, time.Time, int, error) {
+	scanSessionFile = func(path string, prev *codexCacheRecord) (*session.Session, codexCacheRecord, error) {
 		current := active.Add(1)
 		for {
 			maxSeen := maxActive.Load()
@@ -234,10 +234,10 @@ func TestRepresentativeSessionsParsesInParallel(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 		defer active.Add(-1)
-		return parseFile(path, includeMessages, messageLimit)
+		return orig(path, prev)
 	}
 	t.Cleanup(func() {
-		parseSessionFile = orig
+		scanSessionFile = orig
 	})
 
 	ss, err := OpenAt(home).Scan()
@@ -337,17 +337,17 @@ func TestResolveHomeHonorsCodexHome(t *testing.T) {
 	}
 }
 
-func TestReadJSONLLineSkipsOversizeLine(t *testing.T) {
+func TestReadListLineSkipsOversizeLine(t *testing.T) {
 	r := bufio.NewReader(strings.NewReader(strings.Repeat("x", 10) + "\n" + `{"ok":true}` + "\n"))
 
-	line, err := readJSONLLine(r, 4)
+	line, _, _, err := readListLine(r, nil, 4)
 	if err != nil {
 		t.Fatalf("first read err: %v", err)
 	}
 	if line != nil {
 		t.Fatalf("oversize line = %q, want nil", line)
 	}
-	line, err = readJSONLLine(r, 4*1024)
+	line, _, _, err = readListLine(r, nil, 4*1024)
 	if err != nil {
 		t.Fatalf("second read err: %v", err)
 	}
@@ -394,19 +394,26 @@ func writeSessionNamed(t testing.TB, home, rel, body string) {
 
 func countParseCalls(t *testing.T) *atomic.Int32 {
 	t.Helper()
-	orig := parseSessionFile
+	orig := scanSessionFile
 	var calls atomic.Int32
-	parseSessionFile = func(path string, includeMessages bool, messageLimit int) (*session.Session, []session.Message, time.Time, int, error) {
+	scanSessionFile = func(path string, prev *codexCacheRecord) (*session.Session, codexCacheRecord, error) {
 		calls.Add(1)
-		return parseFile(path, includeMessages, messageLimit)
+		return orig(path, prev)
 	}
 	t.Cleanup(func() {
-		parseSessionFile = orig
+		scanSessionFile = orig
 	})
 	return &calls
 }
 
 func BenchmarkScanManySessions(b *testing.B) {
+	for _, name := range []string{"cold", "warm", "appended"} {
+		b.Run(name, func(b *testing.B) { benchmarkScanManySessions(b, name) })
+	}
+}
+
+func benchmarkScanManySessions(b *testing.B, mode string) {
+	b.Setenv(session.EnvCacheDir, b.TempDir())
 	home := b.TempDir()
 	cwd := b.TempDir()
 	for i := range 512 {
@@ -416,8 +423,25 @@ func BenchmarkScanManySessions(b *testing.B) {
 		writeSessionNamed(b, home, fmt.Sprintf("2026/06/14/%s.jsonl", id), body)
 	}
 	store := OpenAt(home)
+	if _, err := store.Scan(); err != nil {
+		b.Fatal(err)
+	}
+	appendTo := filepath.Join(home, "sessions", "2026", "06", "14", "bench-0000.jsonl")
 	b.ResetTimer()
-	for range b.N {
+	for i := range b.N {
+		b.StopTimer()
+		switch mode {
+		case "cold":
+			b.Setenv(session.EnvCacheDir, b.TempDir())
+		case "appended":
+			f, err := os.OpenFile(appendTo, os.O_APPEND|os.O_WRONLY, 0)
+			if err != nil {
+				b.Fatal(err)
+			}
+			fmt.Fprintf(f, `{"timestamp":"2026-06-14T00:00:02Z","type":"event_msg","payload":{"n":%d}}`+"\n", i)
+			f.Close()
+		}
+		b.StartTimer()
 		ss, err := store.Scan()
 		if err != nil {
 			b.Fatalf("Scan: %v", err)

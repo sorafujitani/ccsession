@@ -15,8 +15,8 @@ import (
 	"github.com/sorafujitani/ccsession/internal/session"
 )
 
-// Count actual label extractions, not statement preparation. Existing scan
-// tests separately exercise SQLite's real json_extract and label semantics.
+// Count actual label extractions, native or SQL, not statement preparation.
+// Existing scan tests separately exercise SQLite's real label semantics.
 func countedClassicScan(t *testing.T, store *Store, id, cwd string, single bool, hook func() error) ([]*session.Session, int, error) {
 	t.Helper()
 	db, err := store.openClassic()
@@ -77,6 +77,21 @@ func countedClassicScan(t *testing.T, store *Store, id, cwd string, single bool,
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Native extraction is the common path; json_extract counts SQL fallbacks,
+	// so a row the native path declines counts twice.
+	native := extractClassicLabel
+	extractClassicLabel = func(raw []byte) (string, bool) {
+		count++
+		if hook != nil {
+			fn := hook
+			hook = nil
+			if err := fn(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return native(raw)
+	}
+	defer func() { extractClassicLabel = native }()
 	ss, err := store.cachedClassicSessions(db, id, cwd, single)
 	return ss, count, err
 }
