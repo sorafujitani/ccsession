@@ -3,7 +3,6 @@ package codex
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -53,8 +52,6 @@ type contentBlock struct {
 	Text string `json:"text"`
 }
 
-var parseSessionFile = parseFile
-
 func Open() (*Store, error) {
 	home, err := ResolveHome()
 	if err != nil {
@@ -100,7 +97,7 @@ func (s *Store) FindByID(id string) (*session.Session, error) {
 }
 
 func (s *Store) FindByLocator(id, path string) (*session.Session, error) {
-	sess, _, _, _, err := parseSessionFile(path, false, 0)
+	sess, err := listFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -151,11 +148,7 @@ func (s *Store) MessagesForSession(sess *session.Session, limit int) ([]session.
 	if sess == nil || sess.JSONLPath == "" {
 		return nil, time.Time{}, 0, session.ErrSessionFileMissing
 	}
-	_, msgs, startedAt, total, err := parseFile(sess.JSONLPath, true, limit)
-	if err != nil {
-		return nil, time.Time{}, 0, err
-	}
-	return msgs, startedAt, total, nil
+	return parseMessages(sess.JSONLPath, limit)
 }
 
 func (s *Store) scanFiltered(allow map[string]struct{}) ([]*session.Session, error) {
@@ -208,55 +201,81 @@ func (s *Store) representativeSessions() ([]*session.Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	cachePath, home := codexCachePath(s.home)
+	cache := readCodexCache(cachePath, home)
+	type scanned struct {
+		path      string
+		sess      *session.Session
+		rec       codexCacheRecord
+		cacheable bool // rec describes the file.
+	}
+	results := filescan.Parallel(paths, func(path string) (scanned, bool) {
+		var prev *codexCacheRecord
+		if rec, ok := cache.Files[path]; ok {
+			prev = &rec
+		}
+		sess, rec, err := scanSessionFile(path, prev)
+		// Empty and unusable transcripts are cached too, so they are not
+		// rescanned; I/O errors are not.
+		cacheable := err == nil || errors.Is(err, session.ErrSessionEmpty)
+		return scanned{path: path, sess: sess, rec: rec, cacheable: cacheable}, true
+	})
+	files := make(map[string]codexCacheRecord, len(results))
 	seen := make(map[string]struct{})
 	out := make([]*session.Session, 0, len(paths))
-	candidates := filescan.Parallel(paths, func(path string) (*session.Session, bool) {
-		sess, _, _, _, err := parseSessionFile(path, false, 0)
-		if err != nil || sess == nil {
-			return nil, false
+	for _, r := range results {
+		if r.cacheable {
+			files[r.path] = r.rec
 		}
-		return sess, true
-	})
-	for _, sess := range candidates {
-		if _, ok := seen[sess.ID]; ok {
+		if r.sess == nil {
 			continue
 		}
-		seen[sess.ID] = struct{}{}
-		out = append(out, sess)
+		if _, ok := seen[r.sess.ID]; ok {
+			continue
+		}
+		seen[r.sess.ID] = struct{}{}
+		out = append(out, r.sess)
+	}
+	changed := len(files) != len(cache.Files)
+	for path, rec := range files {
+		if prev, ok := cache.Files[path]; !ok || !prev.equal(rec) {
+			changed = true
+			break
+		}
+	}
+	if changed && cachePath != "" {
+		cache.Files = files
+		_ = writeCodexCache(cachePath, cache)
 	}
 	return out, nil
 }
 
-func parseFile(path string, includeMessages bool, messageLimit int) (*session.Session, []session.Message, time.Time, int, error) {
+// parseMessages reads every message for preview. It fails like the list
+// scan for transcripts the list would not show.
+func parseMessages(path string, limit int) ([]session.Message, time.Time, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil, time.Time{}, 0, session.ErrSessionFileMissing
+			return nil, time.Time{}, 0, session.ErrSessionFileMissing
 		}
-		return nil, nil, time.Time{}, 0, err
+		return nil, time.Time{}, 0, err
 	}
 	defer f.Close()
-
-	sess := &session.Session{
-		ID:         idFromPath(path),
-		ProjectDir: filepath.Dir(path),
-		JSONLPath:  path,
+	info, err := f.Stat()
+	if err != nil {
+		return nil, time.Time{}, 0, err
 	}
 	var (
-		label     string
-		lastTS    time.Time
+		st        listState
 		startedAt time.Time
 		msgs      []session.Message
 		total     int
 	)
 	err = scanJSONLLines(f, func(line []byte) {
+		st.visit(line)
 		var e entry
 		if err := json.Unmarshal(line, &e); err != nil {
 			return
-		}
-		lineTS := timefmt.Parse(e.Timestamp)
-		if !lineTS.IsZero() && lineTS.After(lastTS) {
-			lastTS = lineTS
 		}
 		switch e.Type {
 		case "session_meta":
@@ -264,61 +283,28 @@ func parseFile(path string, includeMessages bool, messageLimit int) (*session.Se
 			if err := json.Unmarshal(e.Payload, &meta); err != nil {
 				return
 			}
-			if meta.ID != "" {
-				sess.ID = meta.ID
-			}
-			if meta.CWD != "" {
-				sess.CWD = meta.CWD
-			}
-			metaTS := timefmt.Parse(meta.Timestamp)
-			if !metaTS.IsZero() && startedAt.IsZero() {
+			if metaTS := timefmt.Parse(meta.Timestamp); !metaTS.IsZero() && startedAt.IsZero() {
 				startedAt = metaTS
 			}
-			if !metaTS.IsZero() && metaTS.After(lastTS) {
-				lastTS = metaTS
-			}
 		case "response_item":
-			msg, ok := parseMessagePayload(e.Payload, lineTS)
+			msg, ok := parseMessagePayload(e.Payload, timefmt.Parse(e.Timestamp))
 			if !ok {
 				return
 			}
 			if startedAt.IsZero() && !msg.Timestamp.IsZero() {
 				startedAt = msg.Timestamp
 			}
-			if msg.Role == "user" {
-				label = msg.Body
-			}
-			if includeMessages {
-				msgs = appendMessage(msgs, msg, total, messageLimit)
-			}
+			msgs = appendMessage(msgs, msg, total, limit)
 			total++
 		}
 	})
 	if err != nil {
-		return nil, nil, time.Time{}, 0, err
+		return nil, time.Time{}, 0, err
 	}
-	if sess.ID == "" || idCorruptsRow(sess.ID) {
-		return nil, nil, time.Time{}, 0, nil
+	if sess, err := st.finish(path, info); sess == nil || err != nil {
+		return nil, time.Time{}, 0, err
 	}
-	label = session.SanitizeLabel(label)
-	if label == "" {
-		return nil, nil, time.Time{}, 0, session.ErrSessionEmpty
-	}
-	sess.Label = label
-	if sess.CWD == "" {
-		sess.CWDUnknown = true
-	} else {
-		sess.CWDBasename = filepath.Base(sess.CWD)
-		sess.CWDExists = pathIsDir(sess.CWD)
-	}
-	if lastTS.IsZero() {
-		if fi, err := os.Stat(path); err == nil {
-			lastTS = fi.ModTime()
-		}
-	}
-	sess.LastTime = lastTS
-	sess.LastEpoch = lastTS.Unix()
-	return sess, collectMessages(msgs, total, messageLimit), startedAt, total, nil
+	return collectMessages(msgs, total, limit), startedAt, total, nil
 }
 
 func parseMessagePayload(raw json.RawMessage, ts time.Time) (session.Message, bool) {
@@ -422,9 +408,9 @@ func extractContent(raw json.RawMessage) string {
 }
 
 func scanJSONLLines(r io.Reader, visit func([]byte)) error {
-	br := bufio.NewReaderSize(r, 64*1024)
+	br := bufio.NewReaderSize(r, listReadSize)
 	for {
-		line, err := readJSONLLine(br, jsonlLineCap)
+		line, _, _, err := readListLine(br, nil, jsonlLineCap)
 		if len(line) > 0 {
 			visit(line)
 		}
@@ -434,30 +420,6 @@ func scanJSONLLines(r io.Reader, visit func([]byte)) error {
 		if err != nil {
 			return err
 		}
-	}
-}
-
-func readJSONLLine(r *bufio.Reader, max int) ([]byte, error) {
-	var (
-		buf       bytes.Buffer
-		truncated bool
-	)
-	for {
-		chunk, err := r.ReadSlice('\n')
-		if len(chunk) > 0 && !truncated {
-			if buf.Len()+len(chunk) > max {
-				truncated = true
-			} else {
-				buf.Write(chunk)
-			}
-		}
-		if err == bufio.ErrBufferFull {
-			continue
-		}
-		if truncated {
-			return nil, err
-		}
-		return bytes.TrimSpace(buf.Bytes()), err
 	}
 }
 

@@ -53,6 +53,35 @@ the standard Go output. To compare two saved benchmark runs:
 task benchstat BEFORE=/tmp/before.txt AFTER=/tmp/after.txt
 ```
 
+For the large startup workload, generate synthetic sessions and measure both
+CLI output and the interactive picker:
+
+```sh
+go build -o ./ccsession ./cmd/ccsession
+python3 scripts/benchmark-startup.py \
+  --binary ./ccsession --data-dir /tmp/ccsession-startup --picker
+```
+
+The defaults create 4,451 Kiro classic conversations and 647 Claude sessions,
+with about 2.3 GB of conversation JSON. Allow enough disk space. The script
+isolates agent stores and caches, reports cold, warm, and single-row-update
+medians, and closes the picker without resuming a session. To compare revisions,
+use binaries built from each revision with the same data directory. Run one
+benchmark process per directory; OS page caches are not cleared.
+
+Add `--codex-rows 197` (with a new `--data-dir`) to include Codex rollouts of
+about 10 MB (`--codex-bytes`), mostly compacted history and tool output. The
+updated case then also appends a user message to one rollout.
+
+List scans keep caches under `$CCSESSION_SCAN_CACHE_DIR` (default: the user
+cache directory's `ccsession/scan`), readable only by the user. Kiro classic
+labels are revalidated by content hash whenever the database snapshot
+changes. A Codex rollout is not read while its file stamp (device, inode,
+size, mtime, ctime) is unchanged and older than two seconds; otherwise the
+scan resumes after the cached prefix only if that prefix's digest (SHA-256
+over SHA-256s of 4 MiB blocks) still matches, and rescans the file when it
+does not. Platforms without file stamps always verify the prefix.
+
 A few useful commands while developing:
 
 ```sh

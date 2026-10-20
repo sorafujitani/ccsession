@@ -344,14 +344,15 @@ func TestInvalidMetadataTimeFallsBackToModTime(t *testing.T) {
 }
 
 type fixture struct {
-	t    *testing.T
+	t    testing.TB
 	home string
 	cwd  string
 	db   *sql.DB
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t testing.TB) *fixture {
 	t.Helper()
+	t.Setenv(session.EnvCacheDir, t.TempDir())
 	home := t.TempDir()
 	cwd := t.TempDir()
 	path := filepath.Join(home, "data.sqlite3")
@@ -471,7 +472,7 @@ func (f *fixture) v3InBucket(bucket, id, title, prompt, answer, updatedAt string
 	return id
 }
 
-func writeJSON(t *testing.T, path string, value any) {
+func writeJSON(t testing.TB, path string, value any) {
 	t.Helper()
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -482,7 +483,7 @@ func writeJSON(t *testing.T, path string, value any) {
 	}
 }
 
-func writeJSONL(t *testing.T, path string, values []any) {
+func writeJSONL(t testing.TB, path string, values []any) {
 	t.Helper()
 	var raw []byte
 	for _, value := range values {
